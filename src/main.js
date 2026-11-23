@@ -1,11 +1,10 @@
-// CITIZENESIA: THE GAME v0.2. You start as a cell inside The People's House (its inside is the womb from the video).
-// You grow through real comments: the census reads them each episode and writes public/data/world.json (level, likes, role).
-// At level BABY you enter the egg, are born, and walk out into an endless world of islands and sea, where you work and build.
+// CITIZENESIA: THE GAME v0.3, the country of the reels (@citizenesia.official). Follow = you are one of the people; the most-liked comment
+// decides what gets built next. You walk the village from the latest episode (Pak Presiden, the Rumah Makan Rakyat, the Kas Negara,
+// the hospital, the school), go into the houses, work, and build in the endless land around it. public/data/world.json holds the numbers.
 import * as THREE from "three";
-import { SKY, clamp, lerp, fnv } from "./kit.js";
-import { sperm, swim, talk, baby, walk, sit, fetus, grow, STAGE_YEARS, blinkAt, LOOK_COLOURS } from "./actors.js";
-import { buildIsland, OFFICE } from "./island.js";
-import { buildDPR, SPAWN, EXIT, EGG } from "./dpr.js";
+import { SKY, clamp } from "./kit.js";
+import { baby, walk, sit, grow, LOOK_COLOURS } from "./actors.js";
+import { buildNegara, president } from "./negara.js";
 import { createTerrain, heightAt, SEA, HOME_R } from "./terrain.js";
 import { createBuilder, BLOCKS } from "./build.js";
 import { t9n, getLang, setLang } from "./i18n.js";
@@ -39,27 +38,22 @@ const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
 function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.userData.lift = undefined; camera.clearViewOffset(); camera.updateProjectionMatrix(); }
 addEventListener("resize", () => { resize(); if (typeof hud === "function" && avatar) hud(); }); resize();
 
-// ---------- the two places: inside The People's House, and the world outside ----------
-const dpr = buildDPR(t9n, quality);
-const out = new THREE.Scene(); out.background = new THREE.Color(SKY); out.fog = new THREE.Fog(SKY, 40, touch ? 85 : 120);
-out.add(new THREE.HemisphereLight("#fff8f0", "#c9a4ae", 1.35));
-const sun = new THREE.DirectionalLight("#fff3e2", 2.2); sun.castShadow = quality.shadows; sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 90 }); sun.shadow.bias = -0.0004; sun.shadow.radius = 4;
-out.add(sun, sun.target);
+// ---------- the village from the reels, inside an endless land ----------
+const negara = buildNegara(quality);
+const out = negara.scene, sun = negara.sun;
+sun.castShadow = quality.shadows; if (!out.children.includes(sun.target)) out.add(sun.target);
+out.fog.far = touch ? 85 : 120;
 const terrain = createTerrain(out, touch ? 2 : 3);
-const island = buildIsland(out, t9n);
 const inBox = (b, x, z, m = 0) => x > b.x0 - m && x < b.x1 + m && z > b.z0 - m && z < b.z1 + m;
-const NOBUILD_OFFICE = { x0: OFFICE.x - 5, x1: OFFICE.x + 5, z0: OFFICE.z - 4.2, z1: OFFICE.z + 4.2 };
-const noBuild = (x, z) => Math.hypot(x, z) < 6.2 || island.solids.some((b) => inBox(b, x, z, 0.4)) || inBox(NOBUILD_OFFICE, x, z)
-  || Math.hypot(x - island.doorWorld.x, z - island.doorWorld.z) < 3;
+const noBuild = (x, z) => Math.hypot(x, z + 1) < 15 || (Math.abs(x) < 7 && z > 6 && z < 13) || negara.solids.some((b) => inBox(b, x, z, 0.4));   // the village stays as in the reels
 const builder = createBuilder(out, camera, noBuild);
 const homes = createHomes(out);
 
 // ---------- save ----------
 const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () => "CZ-" + Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
-let S = { name: "", code: newCode(), look: { cap: "#e0384b", band: null, glasses: true, stache: true, helmet: false }, coins: 0, free: false, hired: false,
-  born: false, created: false, adm: { on: true, form: "president", size: 1, body: null, sim: 1, age: 16 }, where: "in", posIn: [SPAWN.womb[0], SPAWN.womb[1]], posOut: [0, -14], blocks: [], homes: [], votes: { yes: 0, no: 0 } };
+let S = { name: "", code: newCode(), look: { cap: null, band: null, glasses: false, stache: false, helmet: false }, coins: 0, free: false, hired: false,
+  created: false, adm: { on: true, form: "president", size: 1, body: null, age: 25 }, where: "out", posOut: [negara.spawn.x, negara.spawn.z], blocks: [], homes: [] };
 try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 let dirty = false, resetting = false;
@@ -67,50 +61,35 @@ const powers = () => isAdmin && S.adm.on;   // admin mode; "view as a player" tu
 const round = (v) => Math.round(v * 100) / 100;
 function save() {
   if (resetting) return;
-  S.blocks = builder.save(); S.homes = homes.list; S.where = where === "house" ? "out" : where;
-  if (where === "house") {} else if (where === "in") S.posIn = [round(player.x), round(player.z)]; else S.posOut = [round(player.x), round(player.z)];
+  S.blocks = builder.save(); S.homes = homes.list; S.where = "out";
+  if (where === "out") S.posOut = [round(player.x), round(player.z)];
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false;
 }
 builder.load(S.blocks); homes.load(S.homes);
 
-// ---------- the census (world.json): population, today's law, every citizen's level ----------
-let DATA = { day: 1, population: 0, decree: null, citizens: [], links: {}, inbox: null };
-const norm = (c) => (typeof c === "string" ? { name: c.replace(/^@/, ""), level: 1 } : { ...c, name: String(c.name || "").replace(/^@/, ""), level: c.level || 1 });
-const paintData = () => { island.setData(DATA, t9n("locale")); dpr.setData(DATA, t9n("locale"), S.votes); };
-fetch("data/world.json").then((r) => r.json()).then((d) => { DATA = { ...DATA, ...d, links: d.links || {}, citizens: (d.citizens || []).map(norm) }; applyData(); }).catch(() => applyData());
-function applyData() { paintData(); island.setCitizens(DATA.citizens); dpr.setCitizens(DATA.citizens); refreshLevel(); }
-const me = () => { const n = (S.name || "").toLowerCase(); return n ? DATA.citizens.find((c) => c.name.toLowerCase() === n) || null : null; };
-const linked = (c) => !!c && [].concat(c.v || []).includes(fnv(S.code));
-let LV = 1;   // 1 cell, 2 fetus, 3 baby, 4 child, 5 teen, 6 adult (from the census; only for a linked account)
-function refreshLevel() {
-  const c = me(); LV = linked(c) ? clamp(c.level | 0, 1, 6) : 1;
-  if (isAdmin) LV = powers() ? 6 : S.adm.sim;   // the admin's player view tries each census level
-  if (DEBUG && params.get("level")) LV = clamp(+params.get("level"), 1, 6);
-  if (avatar && avatar.kind !== kindNow()) makeAvatar();
-  hud();
-}
-const ageYears = () => (powers() ? S.adm.age ?? 16 : STAGE_YEARS[clamp(LV, 3, 6)]);   // the body follows the age
-const kindNow = () => (powers() ? S.adm.form : S.born ? "baby" : LV === 2 ? "fetus" : "cell");
+// ---------- the numbers (world.json): the people (followers), the latest episode, the account links ----------
+let DATA = { day: 9, population: 0, decree: null, links: {} };
+const IG = "https://www.instagram.com/citizenesia.official/";
+fetch("data/world.json").then((r) => r.json()).then((d) => { DATA = { ...DATA, ...d, links: d.links || {} }; negara.setFollow(DATA.population); hud(); }).catch(() => {});
+const fmt = (n) => (n || 0).toLocaleString(t9n("locale"));
+const ageYears = () => (powers() ? S.adm.age ?? 25 : 25);
+const kindNow = () => (powers() && S.adm.form === "president" ? "president" : "rakyat");
+function refreshLevel() { if (avatar && avatar.kind !== kindNow()) makeAvatar(); hud(); }
 
 // ---------- the player ----------
-let where = S.where === "out" && (S.born || powers()) ? "out" : "in";
+let where = "out";
 let house = null;   // the inside of the house you are in
-const room = () => (where === "in" ? dpr : where === "house" ? house : null);
+const room = () => (where === "house" ? house : null);
 const scene = () => (room() ? room().scene : out);
-const startPos = where === "in" ? (S.created ? S.posIn : [SPAWN.womb[0], SPAWN.womb[1]]) : S.posOut;
-const player = new THREE.Vector3(startPos[0], 0, startPos[1]);
-let vy = 0, facing = Math.PI / 2, avatar = null, moving = false, swimH = 1.1;
-let yaw = SPAWN.womb[2], pitch = 0.35, dist = 7;
+const player = new THREE.Vector3(S.posOut[0], 0, S.posOut[1]);
+let vy = 0, facing = Math.PI, avatar = null, moving = false;
+let yaw = negara.spawn.yaw, pitch = 0.4, dist = 6;
 const handle = () => "@" + (S.name || t9n("namePh"));
 function makeAvatar() {
   if (avatar) avatar.g.parent?.remove(avatar.g);
   const kind = kindNow(), adm = powers(), k = adm ? S.adm.size : 1, body = adm ? S.adm.body : null;
-  if (kind === "cell" || kind === "president") {
-    avatar = { kind, ...sperm({ name: handle(), look: S.look, president: kind === "president", color: body }) };
-    avatar.g.scale.setScalar((kind === "president" ? 0.6 : 0.45 * (1 + Math.min(1, (me()?.likes || 0) / 500) * 0.6)) * k);
-  }
-  else if (kind === "fetus") { avatar = { kind, ...fetus(handle()) }; avatar.g.scale.setScalar(0.42 * k); }
-  else { avatar = { kind, ...grow(baby(handle(), { ...S.look, skin: body }), ageYears()) }; avatar.g.scale.setScalar(0.75 * k); }
+  avatar = kind === "president" ? { kind, ...president(handle()) } : { kind, ...grow(baby(handle(), { ...S.look, skin: body }), ageYears()) };
+  avatar.g.scale.setScalar(0.62 * k);   // the same size as the people in the reels
   scene().add(avatar.g);
 }
 function ground(x, z, fromY = 99) {
@@ -211,13 +190,13 @@ let toastT = 0, stampT = 0;
 function toast(msg, s = 2.8) { const el = $("toast"); el.textContent = msg; el.classList.add("on"); toastT = s; }
 function stamp(txt) { const el = $("stamp"); el.textContent = txt; el.classList.add("on"); stampT = 1.3; }
 function hint() {
-  if (powers()) return "";
-  if (where === "in") return S.born ? "hintExit" : LV >= 3 ? "hintEgg" : LV === 2 ? "hintFetus" : "hintCell";
-  return !S.hired ? "hintWork" : builder.count() < 3 ? "hintBuild" : "";
+  if (powers() || where === "house") return "";
+  return !S.hired ? "hintKampung" : builder.count() < 3 ? "hintBuild" : "";
 }
 function hud() {
   $("meName").textContent = handle();
-  $("meLv").textContent = powers() ? t9n("admin") + (S.adm.form === "baby" ? ` · ${S.adm.age ?? 16}` : "") : t9n("levels")[LV];
+  $("meLv").textContent = powers() ? t9n("admin") : t9n("rakyatLv");
+  $("rakyat").textContent = `👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)}`;
   $("adminBtn").textContent = innerWidth <= 480 ? "⚙" : t9n("admin");
   $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
   $("adminBtn").style.display = isAdmin ? "inline-block" : "none";
@@ -225,7 +204,7 @@ function hud() {
   $("hint").style.display = h && !building ? "" : "none";
   $("buildBtn").style.display = where === "out" ? "" : "none";
   if (where === "house") $("hint").textContent = t9n("hintHouse"), $("hint").style.display = "";
-  $("jumpBtn").textContent = avatar && avatar.kind !== "baby" ? t9n("swimUp") : t9n("jump");
+  $("jumpBtn").textContent = t9n("jump");
 }
 function labels() {
   document.documentElement.lang = getLang();
@@ -234,7 +213,7 @@ function labels() {
   $("editBtn").textContent = t9n("edit"); $("resetBtn").textContent = t9n("reset"); $("growBtn").textContent = t9n("grow");
   $("cSub").textContent = t9n("subtitle"); $("cNameL").textContent = t9n("yourName"); $("cName").placeholder = t9n("namePh");
   $("cLookL").textContent = t9n("look"); $("cFreeL").textContent = t9n("freeMode"); $("cGo").textContent = S.created ? "OK" : t9n("play");
-  island.paintTexts(); dpr.paintTexts(); paintData(); buildBar(); creatorUI(); hud(); actsSig = null;   // redraw the action buttons
+  negara.paintTexts(); buildBar(); creatorUI(); hud(); actsSig = null;   // redraw the action buttons
 }
 $("langBtn").onclick = () => { setLang(getLang() === "id" ? "en" : "id"); labels(); makeAvatar(); };
 $("menuBtn").onclick = () => { const m = $("menu"); m.style.display = m.style.display === "flex" ? "none" : "flex"; };
@@ -271,36 +250,21 @@ function creatorUI() {
     tg.appendChild(b);
   });
 }
-$("cName").addEventListener("input", (e) => { S.name = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 30); e.target.value = S.name; refreshLevel(); makeAvatar(); });
+$("cName").addEventListener("input", (e) => { S.name = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 30); e.target.value = S.name; makeAvatar(); });
 $("cFree").addEventListener("change", (e) => { S.free = e.target.checked; hud(); buildBar(); });
-$("cGo").onclick = () => { if (!S.name) S.name = t9n("namePh"); S.created = true; $("creator").style.display = "none"; refreshLevel(); makeAvatar(); labels(); save(); SFX.pop(); };
+$("cGo").onclick = () => { if (!S.name) S.name = t9n("namePh"); if (!S.created) { yaw = negara.spawn.yaw; facing = yaw + Math.PI; pitch = 0.4; dist = 6; } S.created = true; $("creator").style.display = "none"; refreshLevel(); makeAvatar(); labels(); save(); SFX.pop(); };
 
-// ---------- grow through comments (Instagram, TikTok, YouTube, or the in-app box once online) ----------
+// ---------- how the country works: follow = one of the people, the most-liked comment = tomorrow's story ----------
 function openGrow() {
-  const c = me(), ok = linked(c);
-  $("gTitle").textContent = t9n("gTitle"); $("gHow").textContent = t9n("gHow");
-  $("gLadder").innerHTML = t9n("gLadder").map((l) => `<li>${l}</li>`).join("");
-  $("gYou").textContent = `${t9n("gYou", { name: S.name || t9n("namePh"), lv: t9n("levels")[LV] })} · ${ok ? t9n("gVerified") : t9n("gNotVerified")}`;
-  $("gCodeL").textContent = t9n("gCode"); $("gCode").textContent = S.code; $("gText").placeholder = t9n("gPh");
-  const L = DATA.links || {};
-  [["gIG", "gCopyIG", L.instagram], ["gTT", "gTT", L.tiktok], ["gYT", "gYT", L.youtube]].forEach(([id, k, url]) => {
-    const b = $(id); b.textContent = t9n(k) + (url ? "" : " " + t9n("gSoon")); b.disabled = !url;
-    b.onclick = () => { if (!url) return; copy(commentText()); toast(t9n("gCopied"), 3); window.open(url, "_blank", "noopener"); };
-  });
-  $("gSend").textContent = t9n("gSend"); $("gSend").disabled = !DATA.inbox; $("gClose").textContent = t9n("gClose");
-  $("gNote").textContent = DATA.inbox ? "" : t9n("gNoInbox");
+  $("gTitle").textContent = t9n("jTitle"); $("gHow").textContent = t9n("jHow");
+  $("gLadder").innerHTML = t9n("jRules").map((l) => `<li>${l}</li>`).join("");
+  $("gYou").textContent = `👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)} · ${t9n("jLatest")}`;
+  ["gCodeL", "gCode", "gText", "gTT", "gYT", "gSend", "gNote"].forEach((id) => ($(id).style.display = "none"));
+  const url = DATA.links.instagram || IG, b = $("gIG"); b.textContent = t9n("jOpenIG"); b.disabled = false;
+  b.onclick = () => window.open(url, "_blank", "noopener");
+  $("gClose").textContent = t9n("gClose");
   $("grow").style.display = "flex";
 }
-const commentText = () => `${$("gText").value.trim()} ${S.code}`.trim();
-function copy(txt) {
-  const fallback = () => { const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch {} ta.remove(); };
-  try { navigator.clipboard.writeText(txt).catch(fallback); } catch { fallback(); }
-}
-$("gSend").onclick = () => {
-  if (!DATA.inbox) return;
-  fetch(DATA.inbox, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: S.name, code: S.code, text: $("gText").value.trim() }) })
-    .then((r) => { if (!r.ok) throw 0; toast(t9n("gSent"), 3); $("gText").value = ""; }).catch(() => toast("…", 1));
-};
 $("gClose").onclick = () => ($("grow").style.display = "none");
 $("grow").onclick = (e) => { if (e.target.id === "grow") $("grow").style.display = "none"; };
 
@@ -351,51 +315,36 @@ function useTool(kind) {
 // ---------- speech bubbles ----------
 let bubbleT = 0, bubbleAt = null;
 function say(getPos, text, s = 3) { const b = $("bubble"); b.textContent = text; b.style.display = "block"; bubbleT = s; bubbleAt = getPos; }
-const overPlayer = () => tmp.copy(player).add(new THREE.Vector3(0, avatar.kind === "baby" ? 2.0 : 1.6, 0));
+const overPlayer = () => tmp.copy(player).add(new THREE.Vector3(0, 1.6, 0));
 
 // ---------- everything you can use ----------
-let seated = null, napT = -1, workT = -1, bornT = -1, gateT = 0, wasInGate = false, sayI = 0, presTalkT = 0;
-const lineFor = (s) => s.replace("{pop}", (DATA.population || 0).toLocaleString(t9n("locale"))).replace("{decree}", DATA.decree ? DATA.decree.text : t9n("noDecree"));
-function vote(yes) {
-  S.votes[yes ? "yes" : "no"]++; dirty = true; paintData(); (yes ? SFX.yes : SFX.no)(); toast(t9n("voted"), 2.4);
-}
-function enterEgg() {
-  if (S.born) { toast(t9n("eggBorn")); return; }
-  if (LV >= 3) { bornT = 0; dpr.flashEgg(); SFX.born(); return; }
-  toast(t9n(LV === 2 ? "eggFetus" : "eggCell"), 3.4); SFX.no();
-}
+let seated = null, napT = -1, workT = -1, sayI = 0;
 function work() {
   if (!S.hired) { toast(t9n("reject"), 2.2); SFX.no(); setTimeout(() => { toast(t9n("hired")); SFX.yes(); S.hired = true; dirty = true; hud(); }, 2300); return; }
   if (workT < 0) { workT = 0; $("prog").style.display = "block"; $("progT").textContent = t9n("working"); }
 }
-const SP = dpr.spots;
-const IN_SPOTS = [
-  { ...SP.reception, acts: () => [["aCard", () => { const c = me(); toast(linked(c) ? t9n("card", { no: String(c.no || 0).padStart(4, "0"), name: c.name, lv: t9n("levels")[LV], role: c.role ? " · " + c.role : "" }) : t9n("cardNone", { code: S.code }), 4); SFX.pop(); }]] },
-  { ...SP.aspiration, acts: () => [["aGrow", openGrow]] },
-  { ...SP.podium, acts: () => [["aSpeech", () => { say(overPlayer, t9n("speech", { decree: DATA.decree ? DATA.decree.text : t9n("noDecree") }), 4); SFX.mic(); }]] },
-  { ...SP.gavel, acts: () => [["aGavel", () => { dpr.swingGavel(); SFX.gavel(); setTimeout(() => stamp(t9n("sah")), 300); }]] },
-  { ...SP.president, acts: () => [["aTalk", () => { say(() => tmp.copy(dpr.president.g.position).add(new THREE.Vector3(0, 1.6, 0)), lineFor(t9n("presidentSays")[sayI++ % 4]), 3.4); presTalkT = 3.4; }]] },
-  { ...SP.lights, acts: () => [["aLights", () => { dpr.setLights(!dpr.lightsOn); SFX.click(); toast(t9n(dpr.lightsOn ? "lightsOn" : "lightsOff"), 2.4); }]] },
-  { ...SP.egg, acts: () => [["aEgg", enterEgg]] },
-  { ...SP.snack, acts: () => [["aEat", () => { SFX.eat(); toast(t9n("snack")); }]] },
-  { ...SP.water, acts: () => [["aDrink", () => { SFX.pop(); toast(t9n("drink")); }]] },
-  { ...SP.tv, acts: () => [["aTv", () => toast(t9n("tvNow"))]] },
-  { ...SP.vending, acts: () => [["aVend", () => { const fr = S.free || powers(); if (!fr && S.coins < 1) { toast(t9n("broke")); return; } if (!fr) S.coins--; dirty = true; SFX.coin(); toast(t9n("vend")); hud(); }]] },
-  { ...SP.nap, acts: () => [["aNap", () => { napT = 0; toast(t9n("nap"), 2.5); }]] },
-  { ...SP.census, acts: () => [["aCensus", () => toast((DATA.citizens || []).slice(0, 8).map((c) => "@" + c.name + " (" + t9n("levels")[c.level] + ")").join(" · ") || "—", 5)]] },
-  ...dpr.seats.map((s) => ({ x: s.cx, z: s.cz, r: 0.85, acts: () => [["aSit", () => { seated = s; player.x = s.cx; player.z = s.cz; facing = s.facing; toast(t9n("sitDown"), 1.6); }]] })),
-];
-const OUT_SPOTS = [
-  { x: island.officeDesk.x, z: island.officeDesk.z, r: 3, acts: () => [["aWork", work]] },
-  { x: island.FLAG.x, z: island.FLAG.z + 0.8, r: 2.4, acts: () => [["aFlag", () => toast(t9n("flagInfo"), 4.5)]] },
-  { x: -3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(`${t9n("population")}: ${(DATA.population || 0).toLocaleString(t9n("locale"))}`)]] },
-  { x: 3.6, z: -2.4, r: 2.2, acts: () => [["aRead", () => toast(DATA.decree ? `“${DATA.decree.text}” · @${DATA.decree.author}` : t9n("noDecree"), 4)]] },
-];
-const SEATED_ACTS = () => seated.house ? [...(seated.eat ? [["hEat", () => { SFX.eat(); toast(t9n("eatMsg")); }]] : []), ...(seated.tv ? HOUSE_ACTS.tv() : []), ["aStand", () => (seated = null)]] : [["aMic", () => { say(overPlayer, t9n("interupsi"), 2); SFX.mic(); }], ["aYes", () => vote(true)], ["aNo", () => vote(false)], ["aStand", () => (seated = null)]];
+const pay = (n, msg) => { const fr = S.free || powers(); if (!fr && S.coins < n) { toast(t9n("broke")); return; } if (!fr) S.coins -= n; dirty = true; SFX.coin(); toast(msg, 2.8); hud(); };
+const presLine = () => t9n("presSays")[sayI++ % t9n("presSays").length].replace("{pop}", fmt(DATA.population));
+const SPOTS = negara.spots, ACTS = {
+  president: () => [["aTalk", () => say(() => tmp.copy(negara.president.g.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 1.5, 0)), presLine(), 3.6)]],
+  chair: () => [["aSit", () => { seated = SPOTS.chair.seat; toast(t9n("kursiMsg"), 2.6); }]],
+  makan: () => [["aMakan", () => pay(2, t9n("makanMsg")[Math.floor(Math.random() * t9n("makanMsg").length)])]],
+  gong: () => [["aGong", () => { SFX.gavel(); stamp("GONG!"); }]],
+  wapres: () => [["aWapres", () => toast(t9n("wapresMsg"), 3.4)]],
+  vote: () => [["aVote", openGrow]],
+  kas: () => [["aKas", () => toast(t9n("kasMsg", { n: S.free || powers() ? "∞" : fmt(S.coins) }), 3.6)]],
+  rs: () => [["aRs", () => { SFX.pop(); toast(t9n("rsMsg"), 3.4); }]],
+  sekolah: () => [["aSekolah", () => { SFX.yes(); toast(t9n("sekolahMsg"), 3.4); }]],
+  panggung: () => [["aWork", work], ["aPidato", () => { say(overPlayer, t9n("pidato"), 3); SFX.mic(); }]],
+  rakyat: () => [["aRead", () => toast(`👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)} · ${t9n("followRule")}`, 3.4)]],
+  warung: () => [["aJajan", () => pay(1, t9n("jajanMsg"))]],
+  bakso: () => [["aBakso", () => pay(3, t9n("baksoMsg"))]],
+};
+const SEATED_ACTS = () => [...(seated.eat ? [["hEat", () => { SFX.eat(); toast(t9n("eatMsg")); }]] : []), ...(seated.tv ? HOUSE_ACTS.tv() : []), ["aStand", () => (seated = null)]];
 let curActs = [], actsSig = "";
 function findActs() {
   if (seated) return SEATED_ACTS();
-  if (napT >= 0 || workT >= 0 || bornT >= 0) return [];
+  if (napT >= 0 || workT >= 0) return [];
   let best = null, bd = 1;
   if (where === "house") {
     for (const sp of house.spots) { const d = Math.hypot(player.x - sp.x, player.z - sp.z) / sp.r; if (d < bd) { bd = d; best = sp; } }
@@ -403,12 +352,8 @@ function findActs() {
     if (best.k === "seat") { const st = best.seat; return [["aSit", () => { seated = { ...st, house: true }; player.x = st.cx; player.z = st.cz; facing = st.facing; }]]; }
     return HOUSE_ACTS[best.k]();
   }
-  const list = where === "in" ? IN_SPOTS : OUT_SPOTS;
-  for (const s of list) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = s; } }
-  if (where === "out") for (const w of island.walkers) {   // born citizens say what they do
-    const d = Math.hypot(player.x - w.x, player.z - w.z) / 2; if (d < bd) { bd = d; best = { acts: () => [["aTalk", () => say(() => tmp.copy(w.b.g.position).add(new THREE.Vector3(0, 2, 0)), `@${w.c.name}: ${w.c.life || w.c.role || "…"}`, 3)]] }; }
-  }
-  return best ? best.acts() : [];
+  for (const [k, s] of Object.entries(SPOTS)) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = k; } }
+  return best ? ACTS[best]() : [];
 }
 function renderActs(list) {
   const sig = list.map((a) => a[0]).join("|"); if (sig === actsSig) return; actsSig = sig; curActs = list;
@@ -422,7 +367,6 @@ function renderActs(list) {
 function jump() {
   if (building || !avatar) return;
   if (seated) { seated = null; return; }
-  if (avatar.kind !== "baby") { swimH = Math.min(swimH + 1.6, (where === "in" ? dpr.ceilAt(player.x, player.z) : powers() ? 40 : 8) - 2.2); return; }
   if (player.y <= ground(player.x, player.z, player.y) + 0.01) vy = 8.2;
 }
 
@@ -485,8 +429,9 @@ function buyHouse() {
 
 // ---------- admin panel ----------
 const PLACES = {
-  womb: () => placeAt("in", SPAWN.womb[0], SPAWN.womb[1], SPAWN.womb[2]), hall: () => placeAt("in", 0, 8, 0), lobby: () => placeAt("in", SPAWN.lobby[0], SPAWN.lobby[1], SPAWN.lobby[2]),
-  lounge: () => placeAt("in", -40, 0, Math.PI / 2), plaza: () => placeAt("out", 0, 7, 0), office: () => placeAt("out", OFFICE.x, OFFICE.z + 7, 0),
+  alun: () => placeAt("out", negara.spawn.x, negara.spawn.z, negara.spawn.yaw), makan: () => placeAt("out", SPOTS.makan.x, SPOTS.makan.z + 1.5, 0),
+  rs: () => placeAt("out", SPOTS.rs.x, SPOTS.rs.z - 1.5, Math.PI), sekolah: () => placeAt("out", SPOTS.sekolah.x, SPOTS.sekolah.z - 1.5, Math.PI),
+  kas: () => placeAt("out", SPOTS.kas.x, SPOTS.kas.z + 1, 0),
   foreign: () => { for (let r = 150; r < 900; r += 6) for (let a = 0; a < 6.28; a += 0.4) { const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 0.5) return placeAt("out", x, z, a); } },
 };
 function openAdmin() {
@@ -503,8 +448,8 @@ function openAdmin() {
     P.appendChild(lab(`${t9n("aSize")} ×${A.size.toFixed(1)}`));
     const rg = document.createElement("input"); rg.type = "range"; rg.min = 0.5; rg.max = 3; rg.step = 0.1; rg.value = A.size;
     rg.oninput = () => { A.size = +rg.value; P.querySelectorAll("label")[1].textContent = `${t9n("aSize")} ×${A.size.toFixed(1)}`; makeAvatar(); dirty = true; }; P.appendChild(rg);
-    if (A.form === "baby") {
-      A.age = A.age ?? 16;
+    if (A.form === "rakyat") {
+      A.age = A.age ?? 25;
       P.appendChild(lab(`${t9n("aAge")}: ${A.age} ${t9n("aYears")}`));
       const ag = document.createElement("input"); ag.type = "range"; ag.min = 0; ag.max = 80; ag.step = 1; ag.value = A.age;
       ag.oninput = () => { A.age = +ag.value; P.querySelectorAll("label")[2].textContent = `${t9n("aAge")}: ${A.age} ${t9n("aYears")}`; makeAvatar(); hud(); dirty = true; }; P.appendChild(ag);
@@ -518,8 +463,7 @@ function openAdmin() {
     P.appendChild(sw);
     P.appendChild(row(btn(t9n("aLook"), "", () => { $("admin").style.display = "none"; openCreator(); })));
   } else {
-    P.appendChild(row(...[1, 2, 3, 4, 5, 6].map((n) => btn(t9n("levels")[n], A.sim === n ? "yellow" : "off", () => { A.sim = n; changed(); }))));
-    P.appendChild(row(btn(t9n("aFresh"), "red", () => { A.sim = 1; S.born = false; S.hired = false; changed(t9n("aFreshDone")); PLACES.womb(); $("admin").style.display = "none"; })));
+    P.appendChild(row(btn(t9n("aFresh"), "red", () => { S.hired = false; S.coins = 0; changed(t9n("aFreshDone")); PLACES.alun(); $("admin").style.display = "none"; })));
   }
   P.appendChild(lab(t9n("aGo")));
   P.appendChild(row(...Object.entries(t9n("aPlaces")).map(([k, v]) => btn(v, "dark", () => { flash("#fff", PLACES[k]); $("admin").style.display = "none"; }))));
@@ -527,8 +471,7 @@ function openAdmin() {
   $("admin").style.display = "flex";
 }
 function changed(msg) {
-  dirty = true; refreshLevel(); makeAvatar();
-  if (!powers() && where === "out" && !S.born) PLACES.womb();   // a player who isn't born can't be outside
+  dirty = true; makeAvatar();
   hud(); if (msg) toast(msg, 2);
 }
 $("adminBtn").onclick = () => openAdmin();
@@ -537,13 +480,13 @@ $("admin").onclick = (e) => { if (e.target.id === "admin") $("admin").style.disp
 // ---------- the loop ----------
 const clock = new THREE.Clock(); let t = 0, saveT = 0, drownT = 0, foreignShown = false;
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), camT = new THREE.Vector3(), tmp = new THREE.Vector3();
-const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf");
+const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf"), C_FOG = out.fog.color.clone();
 let nearSolids = [];
 function blockedXZ(x, z) {
   const r = 0.35, y = player.y;
   const rm = room();
   if (rm) return !rm.walkable(x, z) || rm.solids.some((b) => y < b.h && inBox(b, x, z, r));
-  if (island.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
+  if (negara.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
   if (heightAt(x, z) > y + 0.7) return true;   // too steep
   const top = y + 1.3;
   return [[r, 0], [-r, 0], [0, r], [0, -r]].some(([ox, oz]) => builder.blockedAt(x + ox, z + oz, y + 0.05, top));
@@ -552,9 +495,8 @@ function tryMove(dx, dz) { if (!blockedXZ(player.x + dx, player.z)) player.x += 
 function camOK(x, y, z) {
   const rm = room();
   if (rm && rm.wallH && y > rm.wallH + 0.3) return true;   // houses have no roof inside: the camera may look in from above the walls
-  if (rm) return rm.walkable(x, z, 0.1) && y < rm.ceilAt(x, z) - 0.3 && y > rm.groundAt(x, z) + 0.25 && !rm.solids.some((b) => y < b.h + 0.2 && inBox(b, x, z, 0.2))
-    && (rm !== dpr || !dpr.president.g.visible || dpr.president.g.position.distanceTo(tmp.set(x, y, z)) > 2.2);
-  return y > heightAt(x, z) + 0.35 && !island.solids.some((b) => y < b.h + 0.3 && inBox(b, x, z, 0.35)) && !builder.has(Math.floor(x), Math.floor(y), Math.floor(z));
+  if (rm) return rm.walkable(x, z, 0.1) && y < rm.ceilAt(x, z) - 0.3 && y > rm.groundAt(x, z) + 0.25 && !rm.solids.some((b) => y < b.h + 0.2 && inBox(b, x, z, 0.2));
+  return y > heightAt(x, z) + 0.35 && !negara.solids.some((b) => y < b.h + 0.3 && inBox(b, x, z, 0.35)) && !builder.has(Math.floor(x), Math.floor(y), Math.floor(z));
 }
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); t += dt;
@@ -563,7 +505,7 @@ function frame() {
   let mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + joy.x;
   let mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) + joy.y;
   const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-  const want = ml > 0.08 && !panel && bornT < 0 && workT < 0;
+  const want = ml > 0.08 && !panel && workT < 0;
   if (want && seated) seated = null;
   if (want && napT >= 0) napT = -1;
   moving = want && !seated;
@@ -571,58 +513,35 @@ function frame() {
   const underwater = where === "out" && player.y < SEA;
   if (moving) {
     fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
-    const base = (avatar.kind === "cell" || avatar.kind === "president" ? 5.2 : avatar.kind === "fetus" ? 3.6 : 4.4) * (powers() ? 1.5 : 1);
+    const base = 3.6 * (powers() ? 1.5 : 1);   // a walk that suits the small village
     const v = base * (run ? 1.7 : 1) * (underwater ? 0.5 : 1) * dt;
     const dx = (right.x * mx - fwd.x * mz) * v, dz = (right.z * mx - fwd.z * mz) * v;
     tryMove(dx, dz); facing = Math.atan2(dx, dz);
   }
   if (seated) { player.x = seated.cx; player.z = seated.cz; facing = seated.facing; }
 
-  // vertical: cells and fetuses float (UP swims higher, then they sink back), babies fall and jump
+  // vertical: fall and jump; the admin walks on the sea
   let g = ground(player.x, player.z, player.y);
-  if (avatar.kind !== "baby" && where === "out") g = Math.max(g, SEA);   // swimmers float on the sea
-  if (avatar.kind !== "baby") { swimH = Math.max(avatar.kind === "fetus" ? 1.4 : 1.1, swimH - dt * 0.5); player.y = lerp(player.y, g + swimH + Math.sin(t * 2) * 0.12, 0.12); }
-  else { vy -= 25 * dt; player.y += vy * dt; if (player.y <= g) { player.y = g; vy = 0; } if (g > player.y - 0.01 && g - player.y < 0.65) player.y = g; }
+  if (powers() && where === "out") g = Math.max(g, SEA);
+  { vy -= 25 * dt; player.y += vy * dt; if (player.y <= g) { player.y = g; vy = 0; } if (g > player.y - 0.01 && g - player.y < 0.65) player.y = g; }
 
   // avatar pose
   avatar.g.position.copy(player);
-  if (avatar.kind === "cell" || avatar.kind === "president") { avatar.g.rotation.set(0, facing - Math.PI / 2, 0); swim(avatar, t, moving ? 1.6 : 0.6); talk(avatar, 0, blinkAt(t, 3)); }
-  else if (avatar.kind === "fetus") { avatar.g.rotation.set(0, facing - Math.PI / 2, 0); avatar.f.rotation.z = -0.35 + Math.sin(t * 1.5) * 0.08; }
-  else { avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); if (seated) { sit(avatar); avatar.g.position.y += 0.1; } }
+  avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); if (seated) { sit(avatar); avatar.g.position.y += 0.06; }
   if (napT >= 0) { napT += dt; if (napT > 3) { napT = -1; toast(t9n("napWake"), 1.8); SFX.pop(); } }
 
-  // doors between inside and outside
-  if (where === "in" && bornT < 0 && Math.hypot(player.x - EXIT.x, player.z - EXIT.z) < 1.6) {
-    if (S.born || powers()) { SFX.door(); player.z -= 1; flash("#eaf7ff", () => placeAt("out", island.doorWorld.x, island.doorWorld.z + 2.4, 0, 0)); }
-    else { toast(t9n("cellNoExit"), 3); player.z = 49.6; SFX.no(); }
-  }
-  if (where === "out" && Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 1.2) {
-    SFX.door(); toast(t9n("enter"), 1.4); player.z = island.doorWorld.z + 2; flash("#ffd3dc", () => placeAt("in", SPAWN.lobby[0], SPAWN.lobby[1], SPAWN.lobby[2]));
-  }
   // every house has a door: walk in, and back out through the door inside
   doorCool -= dt;
-  if (where === "out" && doorCool <= 0 && bornT < 0) {
-    for (const d of [...island.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors()])
+  if (where === "out" && doorCool <= 0) {
+    for (const d of [...negara.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors()])
       if (Math.hypot(player.x - d.x, player.z - d.z) < 1.05) { enterHouse(d); break; }
   }
   if (where === "house" && player.z > house.spawn.z + 0.75 && Math.abs(player.x) < 0.8) leaveHouse();
-  // metal detector
-  const inGate = where === "in" && Math.abs(player.x) < 1.1 && Math.abs(player.z - 46.5) < 0.4;
-  if (inGate && !wasInGate) { SFX.beep(); gateT = 1; toast(t9n("gateBeep", { n: S.free ? "∞" : S.coins }), 2); }
-  wasInGate = inGate; gateT -= dt;
-
-  // being born: the egg flashes, the cell becomes a baby in front of it
-  if (bornT >= 0) {
-    bornT += dt;
-    if (bornT > 0.5 && !S.born) { $("flash").style.background = "#fff"; $("flash").style.opacity = 1; }
-    if (bornT > 0.9 && !S.born) { S.born = true; dirty = true; makeAvatar(); player.set(EGG.x - 5.4, 0, EGG.z); facing = -Math.PI / 2; yaw = -Math.PI / 2; $("flash").style.opacity = 0; toast(t9n("born"), 3.4); hud(); }
-    if (bornT > 1.4) bornT = -1;
-  }
-  // drowning: a baby whose head goes under the sea
-  if (where === "out" && avatar.kind === "baby" && !powers() && player.y + 1.2 < SEA) {
+  // drowning: when your head goes under the sea
+  if (where === "out" && !powers() && player.y + 0.9 < SEA) {
     drownT += dt; $("water").style.opacity = Math.min(1, drownT * 1.2);
     if (drownT > 0.6 && drownT - dt <= 0.6) { SFX.glug(); toast(t9n("drown"), 2.4); }
-    if (drownT > 2.4) { drownT = 0; $("water").style.opacity = 0; placeAt("out", island.doorWorld.x, island.doorWorld.z + 3, 0, 0); toast(t9n("respawn"), 2.4); }
+    if (drownT > 2.4) { drownT = 0; $("water").style.opacity = 0; placeAt("out", negara.spawn.x, negara.spawn.z, negara.spawn.yaw); toast(t9n("respawn"), 2.4); }
   } else if (drownT > 0) { drownT = Math.max(0, drownT - dt * 2); $("water").style.opacity = Math.min(1, drownT * 1.2); }
   if (where === "out" && !foreignShown && Math.hypot(player.x, player.z) > HOME_R + 80 && heightAt(player.x, player.z) > SEA + 0.4) { foreignShown = true; toast(t9n("foreign"), 3.4); }
   // working
@@ -634,15 +553,13 @@ function frame() {
   renderActs(creating || panel || building ? [] : findActs());
 
   // the places move
-  dpr.president.g.visible = !(powers() && S.adm.form === "president");   // the admin is the president
   if (where === "house") house.update(camera.position);
-  if (where === "in") dpr.update(t, dt, { player, cam: camera.position, presidentTalking: presTalkT > 0, gateBeep: gateT > 0 });
-  else { island.update(t, { player, doorOpen: Math.hypot(player.x - island.doorWorld.x, player.z - island.doorWorld.z) < 6 ? 1 : 0 }); sun.position.set(player.x + 8, 20, player.z + 10); sun.target.position.copy(player); }
-  presTalkT -= dt;
+  else { negara.president.g.visible = !(powers() && S.adm.form === "president");   // the admin is the president
+    negara.update(dt, camera.position); sun.position.set(player.x + 9, 22, player.z + 12); sun.target.position.copy(player); }
 
   // camera: third person, 360° around the player, pulled in when a wall, a block or the ceiling is in the way
-  const d = (avatar.kind === "baby" ? dist : dist * 0.85) * (where === "house" ? 1.35 : 1);
-  camT.set(player.x, player.y + (avatar.kind === "baby" ? (seated ? 1.0 : 1.2) + (avatar.lift || 0) * avatar.g.scale.y * 1.3 : 0.7), player.z);
+  const d = dist * (where === "house" ? 1.35 : 1);
+  camT.set(player.x, player.y + (seated ? 0.7 : 0.85) + (avatar.lift || 0) * avatar.g.scale.y * 1.3, player.z);
   const inHouse = where === "house" && !creating, cy = yaw, cp = inHouse ? Math.max(pitch, 0.9) : pitch;
   let k = d;
   for (; k > 1.2; k -= 0.25) if (camOK(camT.x + Math.sin(cy) * Math.cos(cp) * k, camT.y + Math.sin(cp) * k, camT.z + Math.cos(cy) * Math.cos(cp) * k)) break;
@@ -650,7 +567,7 @@ function frame() {
   camera.lookAt(camT);
   const lift = creating && innerWidth <= 700;   // on a phone the creator sheet covers the bottom: show the character higher up
   if (lift !== camera.userData.lift) { camera.userData.lift = lift; if (lift) camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight * 0.3, innerWidth, innerHeight); else camera.clearViewOffset(); }
-  if (where === "out") { const uw = camera.position.y < SEA; out.background.copy(uw ? C_DEEP : C_SKY); out.fog.color.copy(out.background); out.fog.far = uw ? 22 : touch ? 85 : 120; }
+  if (where === "out") { const uw = camera.position.y < SEA; out.background.copy(uw ? C_DEEP : C_SKY); out.fog.color.copy(uw ? C_DEEP : C_FOG); out.fog.far = uw ? 22 : touch ? 85 : 120; }
 
   // bubbles, toasts, autosave
   if (bubbleT > 0) {
@@ -666,10 +583,10 @@ function frame() {
 }
 
 // ---------- start ----------
-sides(); makeAvatar(); placeAt(where, player.x, player.z, where === "in" ? SPAWN.womb[2] : Math.PI); labels();
+sides(); makeAvatar(); placeAt("out", player.x, player.z, S.created ? yaw : negara.spawn.yaw); labels();
 if (!S.created) openCreator();
 addEventListener("pagehide", () => S.created && save());
 document.fonts.ready.then(() => labels());
 requestAnimationFrame(frame);
-if (DEBUG) window.__cz = { player, S, builder, dpr, island, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get LV() { return LV; }, get where() { return where; },
+if (DEBUG) window.__cz = { player, S, builder, negara, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get where() { return where; },
   get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get avatar() { return avatar; } };
