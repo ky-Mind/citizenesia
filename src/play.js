@@ -11,11 +11,23 @@ const W = {
   id: { drive: "NAIK 🚗", exit: "TURUN", take: "AMBIL", bag: "TAS", use: "PAKAI", drop: "TARUH", empty: "Tas masih kosong. Cari barang di kampung (yang berkilau).",
     online: "ONLINE", offline: "OFFLINE", chat: "CHAT", send: "KIRIM", close: "TUTUP", rotate: "Putar HP-mu ke samping 📱↔️", rotateSub: "CITIZENESIA dimainkan dalam posisi landscape",
     joined: "{n} masuk kampung 👋", left: "{n} keluar kampung", gas: "GAS", brake: "REM", taken: "{i} masuk tas 🎒", dropped: "{i} ditaruh", full: "Tas penuh (12 barang)",
+    lv: "LV", xp: "XP", prof: "PROFIL", code: "Kode pemain", move: "📲 PINDAH HP", moveHow: "Simpan kode rahasia ini. Di HP lain buka menu ☰ → PINDAH HP, lalu tempel kode ini. Jangan bagikan ke orang lain.", movePh: "Tempel kode CZ-…", moveGo: "MASUK", moveBad: "Kode tidak ditemukan", moveOk: "Berhasil! Memuat data…", cloud: "☁️ Tersimpan di server", cloudOff: "☁️ Belum tersimpan di server",
+    stats: "Statistik", sWalk: "Jalan kaki", sDrive: "Menyetir", sJobs: "Kerja", sDeliv: "Paket diantar", sItems: "Barang diambil", sMis: "Misi selesai",
+    mis: "🎯 Misi hari ini", misDone: "Misi selesai! +15 🪙 +50 XP", lvUp: "Naik level! Sekarang {t}", how: "CARA KERJA",
+    job: "📦 ANTAR PAKET", jobGo: "Antar paket ke tanda 📦 di peta!", jobDone: "Paket sampai! +8 🪙 +30 XP", jobCancel: "BATAL ANTAR",
+    titles: ["Warga Baru", "Warga Rajin", "Tetangga Teladan", "Tokoh Kampung", "Pejabat RT", "Pahlawan Citizenesia"],
+    M: { makan: "Makan di Rumah Makan Rakyat", item: "Ambil 3 barang", drive: "Menyetir 300 m", work: "Kerja 2 kali", deliv: "Antar 2 paket", talk: "Ngobrol dengan Pak Presiden", gong: "Pukul gong", chat: "Kirim 1 chat", jajan: "Jajan di warung", walk: "Jalan kaki 200 m" },
     driveHint: "Joystick ke atas = gas, ke bawah = mundur, ke samping = belok", bump: "Duk! Nabrak 😅",
     quick: ["Halo semua! 👋", "Ayo ke Rumah Makan Rakyat 🍛", "Pak Presiden di mana?", "Siapa mau balapan? 🚗", "Mantap! 👍", "Sampai jumpa 👋"], chatPh: "Tulis pesan…" },
   en: { drive: "DRIVE 🚗", exit: "GET OUT", take: "TAKE", bag: "BAG", use: "USE", drop: "DROP", empty: "Your bag is empty. Look for things in the village (the shiny ones).",
     online: "ONLINE", offline: "OFFLINE", chat: "CHAT", send: "SEND", close: "CLOSE", rotate: "Turn your phone sideways 📱↔️", rotateSub: "CITIZENESIA is played in landscape",
     joined: "{n} joined the village 👋", left: "{n} left the village", gas: "GAS", brake: "BRAKE", taken: "{i} is in your bag 🎒", dropped: "{i} dropped", full: "Your bag is full (12 things)",
+    lv: "LV", xp: "XP", prof: "PROFILE", code: "Player code", move: "📲 MOVE PHONE", moveHow: "Keep this secret code. On another phone open menu ☰ → MOVE PHONE and paste it. Don't share it.", movePh: "Paste code CZ-…", moveGo: "LOG IN", moveBad: "Code not found", moveOk: "Done! Loading your data…", cloud: "☁️ Saved on the server", cloudOff: "☁️ Not saved on the server yet",
+    stats: "Stats", sWalk: "Walked", sDrive: "Driven", sJobs: "Jobs", sDeliv: "Parcels delivered", sItems: "Things picked up", sMis: "Missions done",
+    mis: "🎯 Today's missions", misDone: "Mission done! +15 🪙 +50 XP", lvUp: "Level up! You are now {t}", how: "HOW IT WORKS",
+    job: "📦 DELIVER", jobGo: "Take the parcel to the 📦 on the map!", jobDone: "Delivered! +8 🪙 +30 XP", jobCancel: "STOP DELIVERY",
+    titles: ["Newcomer", "Hard Worker", "Model Neighbour", "Village Figure", "RT Official", "Hero of Citizenesia"],
+    M: { makan: "Eat at the people's restaurant", item: "Pick up 3 things", drive: "Drive 300 m", work: "Work 2 times", deliv: "Deliver 2 parcels", talk: "Talk to Pak Presiden", gong: "Hit the gong", chat: "Send 1 chat", jajan: "Buy a snack at the warung", walk: "Walk 200 m" },
     driveHint: "Joystick up = gas, down = reverse, sideways = steer", bump: "Bonk! Crashed 😅",
     quick: ["Hi everyone! 👋", "Let's eat at the people's restaurant 🍛", "Where is Pak Presiden?", "Anyone up for a race? 🚗", "Nice! 👍", "See you 👋"], chatPh: "Write a message…" },
 };
@@ -123,7 +135,7 @@ function textSprite(txt, bg = "#fffdf4", fg = "#3a2414") {
 }
 
 // ---------- online: everyone in the same village ----------
-export function createOnline(scene, { onCount, onLog }) {
+export function createOnline(scene, { onCount, onLog, onBuilds }) {
   const others = new Map();
   let ws = null, me = null, up = false, tries = 0, sendT = 0, last = "";
   function connect() {
@@ -133,8 +145,9 @@ export function createOnline(scene, { onCount, onLog }) {
     ws.onerror = () => {};
     ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
-      if (m.t === "welcome") { me = m.id; m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
+      if (m.t === "welcome") { me = m.id; onBuilds && onBuilds(m.builds || [], true); m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
       else if (m.t === "p") { const fresh = !others.has(m.id); upsert(m.id, m); if (fresh) { onLog(w9("joined", { n: m.n })); onCount(others.size + 1, true); } }
+      else if (m.t === "w") onBuilds && onBuilds([m], false);
       else if (m.t === "bye") { const o = others.get(m.id); if (o) { scene.remove(o.root); others.delete(m.id); onLog(w9("left", { n: o.s.n })); onCount(others.size + 1, true); } }
       else if (m.t === "c") { onLog(`${m.id === me ? "@" + "kamu" : others.get(m.id)?.s.n || "?"}: ${m.text}`, m.id === me); const o = others.get(m.id); if (o) bubble(o, m.text); }
       else if (m.t === "e") { const o = others.get(m.id); if (o) bubble(o, m.e, true); }
@@ -186,7 +199,7 @@ export function createOnline(scene, { onCount, onLog }) {
 }
 
 // ---------- the small map in the corner ----------
-export function drawMap(cv, { player, facing, spots, cars, others, items, house }) {
+export function drawMap(cv, { player, facing, spots, cars, others, items, house, job }) {
   const c = cv.getContext("2d"), w = cv.width, h = cv.height, S = w / 70;   // 70 m across
   c.clearRect(0, 0, w, h); c.save();
   c.beginPath(); c.arc(w / 2, h / 2, w / 2 - 2, 0, Math.PI * 2); c.clip();
@@ -198,6 +211,7 @@ export function drawMap(cv, { player, facing, spots, cars, others, items, house 
   for (const car of cars) { const [x, y] = P(car.x, car.z); c.fillStyle = CAR_COLOURS[car.i % CAR_COLOURS.length]; c.fillRect(x - 3, y - 4, 6, 8); }
   c.fillStyle = "#2f8be6"; for (const o of others.values()) { const [x, y] = P(o.pos.x, o.pos.z); c.beginPath(); c.arc(x, y, 3.5, 0, Math.PI * 2); c.fill(); }
   c.fillStyle = "#ffd84a"; const pr = spots.president; { const [x, y] = P(pr.x, pr.z); c.font = "12px sans-serif"; c.textAlign = "center"; c.fillText("⭐", x, y + 4); }
+  if (job) { let [x, y] = P(job.x, job.z); const d = Math.hypot(x - w / 2, y - h / 2), m = w / 2 - 10; if (d > m) { x = w / 2 + (x - w / 2) * m / d; y = h / 2 + (y - h / 2) * m / d; } c.font = "16px sans-serif"; c.textAlign = "center"; c.fillText("📦", x, y + 5); }
   c.restore();
   c.save(); c.translate(w / 2, h / 2); c.rotate(-facing + Math.PI); c.fillStyle = "#e0384b"; c.beginPath(); c.moveTo(0, -7); c.lineTo(5, 5); c.lineTo(-5, 5); c.closePath(); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.5; c.stroke(); c.restore();
   c.strokeStyle = "rgba(58,36,20,.6)"; c.lineWidth = 3; c.beginPath(); c.arc(w / 2, h / 2, w / 2 - 2, 0, Math.PI * 2); c.stroke();

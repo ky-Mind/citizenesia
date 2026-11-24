@@ -2,7 +2,7 @@
 // decides what gets built next. You walk the village from the latest episode (Pak Presiden, the Rumah Makan Rakyat, the Kas Negara,
 // the hospital, the school), go into the houses, work, and build in the endless land around it. public/data/world.json holds the numbers.
 import * as THREE from "three";
-import { SKY, clamp } from "./kit.js";
+import { SKY, clamp, h2 } from "./kit.js";
 import { baby, walk, sit, grow, LOOK_COLOURS } from "./actors.js";
 import { buildNegara, president } from "./negara.js";
 import { createTerrain, heightAt, SEA, HOME_R } from "./terrain.js";
@@ -61,17 +61,48 @@ let S = { name: "", code: newCode(), look: { cap: null, band: null, glasses: fal
   created: false, bag: [], items: {}, adm: { on: true, form: "president", size: 1, body: null, age: 25 }, where: "out", posOut: [negara.spawn.x, negara.spawn.z], blocks: [], homes: [] };
 try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
-let dirty = false, resetting = false;
+if (!/^[a-z0-9]{12,32}$/.test(S.key || "")) S.key = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+S.xp = S.xp || 0; S.stats = { walk: 0, drive: 0, jobs: 0, deliv: 0, items: 0, mis: 0, ...(S.stats || {}) };
+let dirty = false, resetting = false, cloudDirty = true, cloudOK = false;
 const powers = () => isAdmin && S.adm.on;   // admin mode; "view as a player" turns it off
 const round = (v) => Math.round(v * 100) / 100;
 function save() {
   if (resetting) return;
   S.blocks = builder.save(); S.homes = homes.list; S.items = items.save(); S.where = "out";
   if (where === "out") S.posOut = [round(player.x), round(player.z)];
+  S.t = Date.now(); cloudDirty = true;
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false;
 }
 builder.load(S.blocks); homes.load(S.homes);
 const items = createItems(out, free, S.items || {});
+// what the other players built (from the server): drawn and solid, but not yours to change
+const buildO = createBuilder(out, camera, () => true), homesO = createHomes(out), worldB = new Map();
+function onBuilds(list, all) {
+  if (all) worldB.clear();
+  list.forEach((b) => b.code !== S.code && worldB.set(b.code, b));
+  buildO.load([...worldB.values()].flatMap((b) => b.blocks).filter(([x, y, z]) => !builder.has(x, y, z)));
+  homesO.load([...worldB.values()].flatMap((b) => b.homes));
+}
+// the cloud save: the same save, kept on the server under your code + secret key (so it survives a new phone)
+async function cloudSave(beacon) {
+  if (!S.created) return; cloudDirty = false;
+  const body = JSON.stringify({ code: S.code, key: S.key, data: S });
+  if (beacon && navigator.sendBeacon) { navigator.sendBeacon("/api/save", new Blob([body], { type: "application/json" })); return; }
+  try { const r = await fetch("/api/save", { method: "POST", body, headers: { "content-type": "application/json" } }); cloudOK = r.ok; if (!r.ok) cloudDirty = true; } catch { cloudDirty = true; cloudOK = false; }
+}
+async function cloudLoad(code, key, force) {
+  try {
+    const r = await fetch(`/api/save?code=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}`); if (!r.ok) return false;
+    const j = await r.json(); cloudOK = true; if (!j.data) return !force;
+    if (force || (j.updated > (S.t || 0) + 5000 && !sessionStorage.getItem("cz.pulled"))) {
+      resetting = true; try { sessionStorage.setItem("cz.pulled", "1"); localStorage.setItem(KEY, JSON.stringify({ ...j.data, code, key, t: j.updated })); } catch {}
+      location.reload();
+    }
+    return true;
+  } catch { return false; }
+}
+cloudLoad(S.code, S.key);
+addEventListener("pagehide", () => cloudSave(true));
 if (!Array.isArray(S.bag)) S.bag = [];
 
 // ---------- the numbers (world.json): the people (followers), the latest episode, the account links ----------
@@ -101,7 +132,7 @@ function makeAvatar() {
 }
 function ground(x, z, fromY = 99) {
   if (room()) return room().groundAt(x, z);
-  return Math.max(heightAt(x, z), builder.groundAt(x, z, fromY));
+  return Math.max(heightAt(x, z), builder.groundAt(x, z, fromY), buildO.groundAt(x, z, fromY));
 }
 function placeAt(w, x, z, camYaw, face) {
   where = w; player.set(x, 0, z); player.y = ground(x, z); vy = 0; seated = null;
@@ -204,7 +235,8 @@ function hint() {
 }
 function hud() {
   $("meName").textContent = handle();
-  $("meLv").textContent = powers() ? t9n("admin") : t9n("rakyatLv");
+  $("meLv").textContent = (powers() ? t9n("admin") : t9n("rakyatLv")) + ` · ${w9("lv")} ${level()}`;
+  misBox();
   $("rakyat").textContent = `👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)}`;
   $("adminBtn").textContent = innerWidth <= 480 ? "⚙" : t9n("admin");
   $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
@@ -219,7 +251,7 @@ function hud() {
 function labels() {
   document.documentElement.lang = getLang();
   $("langBtn").textContent = t9n("lang"); $("buildBtn").textContent = building ? t9n("done") : t9n("build");
-  $("joyBtn").textContent = t9n(S.joyRight ? "joyLeft" : "joyRight"); $("joyBtn").style.display = touch ? "" : "none";
+  $("joyBtn").textContent = t9n(S.joyRight ? "joyLeft" : "joyRight"); $("moveBtn").textContent = w9("move"); $("joyBtn").style.display = touch ? "" : "none";
   $("editBtn").textContent = t9n("edit"); $("resetBtn").textContent = t9n("reset"); $("growBtn").textContent = t9n("grow");
   $("cSub").textContent = t9n("subtitle"); $("cNameL").textContent = t9n("yourName"); $("cName").placeholder = t9n("namePh");
   $("cLookL").textContent = t9n("look"); $("cFreeL").textContent = t9n("freeMode"); $("cGo").textContent = S.created ? "OK" : t9n("play");
@@ -231,7 +263,7 @@ $("joyBtn").onclick = () => { S.joyRight = !S.joyRight; dirty = true; sides(); l
 const sides = () => document.body.classList.toggle("joy-right", !!S.joyRight);
 $("editBtn").onclick = () => { $("menu").style.display = "none"; openCreator(); };
 $("growBtn").onclick = () => { $("menu").style.display = "none"; openGrow(); };
-$("me").onclick = () => openGrow();
+$("me").onclick = () => openProfile();
 $("resetBtn").onclick = () => {
   if (!confirm(t9n("resetAsk"))) return;
   resetting = true; try { localStorage.removeItem(KEY); localStorage.removeItem("citizenesia.save.v1"); } catch {} location.reload();
@@ -336,10 +368,10 @@ function work() {
 const pay = (n, msg) => { const fr = S.free || powers(); if (!fr && S.coins < n) { toast(t9n("broke")); return; } if (!fr) S.coins -= n; dirty = true; SFX.coin(); toast(msg, 2.8); hud(); };
 const presLine = () => t9n("presSays")[sayI++ % t9n("presSays").length].replace("{pop}", fmt(DATA.population));
 const SPOTS = negara.spots, ACTS = {
-  president: () => [["aTalk", () => say(() => tmp.copy(negara.president.g.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 1.5, 0)), presLine(), 3.6)]],
+  president: () => [["aTalk", () => (mission("talk"), say(() => tmp.copy(negara.president.g.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 1.5, 0)), presLine(), 3.6))]],
   chair: () => [["aSit", () => { seated = SPOTS.chair.seat; toast(t9n("kursiMsg"), 2.6); }]],
-  makan: () => [["aMakan", () => pay(2, t9n("makanMsg")[Math.floor(Math.random() * t9n("makanMsg").length)])]],
-  gong: () => [["aGong", () => { SFX.gavel(); stamp("GONG!"); }]],
+  makan: () => [["aMakan", () => pay(2, (mission("makan"),  t9n("makanMsg")[Math.floor(Math.random() * t9n("makanMsg").length)]))]],
+  gong: () => [["aGong", () => { mission("gong"); SFX.gavel(); stamp("GONG!"); }]],
   wapres: () => [["aWapres", () => toast(t9n("wapresMsg"), 3.4)]],
   vote: () => [["aVote", openGrow]],
   kas: () => [["aKas", () => toast(t9n("kasMsg", { n: S.free || powers() ? "∞" : fmt(S.coins) }), 3.6)]],
@@ -347,7 +379,7 @@ const SPOTS = negara.spots, ACTS = {
   sekolah: () => [["aSekolah", () => { SFX.yes(); toast(t9n("sekolahMsg"), 3.4); }]],
   panggung: () => [["aWork", work], ["aPidato", () => { say(overPlayer, t9n("pidato"), 3); SFX.mic(); }]],
   rakyat: () => [["aRead", () => toast(`👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)} · ${t9n("followRule")}`, 3.4)]],
-  warung: () => [["aJajan", () => pay(1, t9n("jajanMsg"))]],
+  warung: () => [["aJajan", () => { mission("jajan"); pay(1, t9n("jajanMsg")); }]],
   bakso: () => [["aBakso", () => pay(3, t9n("baksoMsg"))]],
 };
 const SEATED_ACTS = () => [...(seated.eat ? [["hEat", () => { SFX.eat(); toast(t9n("eatMsg")); }]] : []), ...(seated.tv ? HOUSE_ACTS.tv() : []), ["aStand", () => (seated = null)]];
@@ -362,7 +394,7 @@ function findActs() {
     if (best.k === "seat") { const st = best.seat; return [["aSit", () => { seated = { ...st, house: true }; player.x = st.cx; player.z = st.cz; facing = st.facing; }]]; }
     return HOUSE_ACTS[best.k]();
   }
-  if (drive) return [["!" + w9("exit"), getOut]];
+  if (drive) return [...(job ? [["!" + w9("jobCancel"), () => { job = null; beacon.visible = false; actsSig = null; }]] : [["!" + w9("job"), startJob]]), ["!" + w9("exit"), getOut]];
   const extra = [];
   const it = items.near(player.x, player.z);
   if (it) extra.push(["!" + w9("take") + " " + ITEMS[it.k].e, () => takeItem(it)]);
@@ -464,7 +496,7 @@ function carHits(c) {
     if (nearSolids.some((b) => b.h > y + 0.3 && inBox(b, p.x, p.z, p.r * 0.7))) return true;
     if (cars.some((o) => o !== c && carBox(o).some((q) => Math.hypot(q.x - p.x, q.z - p.z) < q.r + p.r * 0.8))) return true;
     if (online.solids().some((o) => Math.hypot(o.x - p.x, o.z - p.z) < o.r + p.r * 0.6)) return true;
-    return builder.blockedAt(p.x, p.z, y + 0.05, y + 1.2);
+    return builder.blockedAt(p.x, p.z, y + 0.05, y + 1.2) || buildO.blockedAt(p.x, p.z, y + 0.05, y + 1.2);
   });
 }
 function driveCar(dt, gas, steer, brake) {
@@ -475,7 +507,7 @@ function driveCar(dt, gas, steer, brake) {
   c.steer += (steer - c.steer) * Math.min(1, dt * 8);
   const ry0 = c.ry; c.ry += c.steer * clamp(c.speed / 5, -1, 1) * 1.9 * dt;
   const x0 = c.x, z0 = c.z;
-  c.x += Math.sin(c.ry) * c.speed * dt; c.z += Math.cos(c.ry) * c.speed * dt;
+  c.x += Math.sin(c.ry) * c.speed * dt; c.z += Math.cos(c.ry) * c.speed * dt; driven(Math.abs(c.speed * dt));
   if (carHits(c)) { c.x = x0; c.z = z0; c.ry = ry0; if (Math.abs(c.speed) > 4) { SFX.no(); toast(w9("bump"), 1); } c.speed *= -0.25; }
   c.y = Math.max(heightAt(c.x, c.z), powers() ? SEA : -9);
 }
@@ -489,7 +521,7 @@ function poseCars(dt) {
 // ---------- the bag: what you picked up ----------
 function takeItem(it) {
   if (S.bag.length >= 12) { toast(w9("full")); SFX.no(); return; }
-  items.take(it); S.bag.push(it.k); dirty = true; SFX.pop(); toast(w9("taken", { i: itemName(it.k) }), 1.8); actsSig = null; hud();
+  items.take(it); S.bag.push(it.k); S.stats.items++; gainXP(2); mission("item"); dirty = true; SFX.pop(); toast(w9("taken", { i: itemName(it.k) }), 1.8); actsSig = null; hud();
 }
 function openBag() {
   const P = $("bagList"); P.innerHTML = "";
@@ -522,7 +554,7 @@ function log(line, mine) {
 let logT = 0;
 const online = createOnline(out, {
   onCount: (n, up) => { $("net").textContent = up ? `🟢 ${n} ${w9("online")}` : `⚪ ${w9("offline")}`; },
-  onLog: log,
+  onLog: log, onBuilds,
 });
 function openChat() {
   $("chatTitle").textContent = `💬 ${w9("chat")}`;
@@ -535,7 +567,7 @@ function openChat() {
 }
 function sendChat(text) {
   text = text.trim().slice(0, 80); if (!text) return;
-  online.chat(text); say(overPlayer, text, 3.5); $("chatIn").value = ""; $("chat").style.display = "none";
+  online.chat(text); mission("chat"); say(overPlayer, text, 3.5); $("chatIn").value = ""; $("chat").style.display = "none";
 }
 $("chatBtn").onclick = () => openChat();
 $("chatSend").onclick = () => sendChat($("chatIn").value);
@@ -550,6 +582,90 @@ if (touch) addEventListener("pointerdown", function fs() {
   (el.requestFullscreen ? el.requestFullscreen({ navigationUI: "hide" }) : Promise.reject()).then(() => screen.orientation?.lock?.("landscape")).catch(() => {});
 }, { once: true, capture: true });
 
+
+// ---------- level, XP, title, stats ----------
+const level = (xp = S.xp) => Math.floor(Math.sqrt(xp / 40)) + 1;
+const title = (lv = level()) => w9("titles")[lv >= 16 ? 5 : lv >= 12 ? 4 : lv >= 8 ? 3 : lv >= 5 ? 2 : lv >= 3 ? 1 : 0];
+function gainXP(n) {
+  const a = level(); S.xp += n; dirty = true;
+  if (level() > a) { stamp(`LV ${level()}`); SFX.born(); toast(w9("lvUp", { t: title() }), 3); }
+  hud();
+}
+let walkAcc = 0, driveAcc = 0;
+function walked(m) { S.stats.walk += m; walkAcc += m; mission("walk", m); if (walkAcc > 100) { walkAcc = 0; gainXP(1); } }
+function driven(m) { S.stats.drive += m; driveAcc += m; mission("drive", m); if (driveAcc > 100) { driveAcc = 0; gainXP(2); } }
+
+// ---------- daily missions: three a day, the same three for everyone (picked from the date) ----------
+const MIS = { makan: 1, item: 3, drive: 300, work: 2, deliv: 2, talk: 1, gong: 1, chat: 1, jajan: 1, walk: 200 };
+const today = () => Math.floor((Date.now() + 7 * 3600e3) / 86400e3);   // days in Indonesian western time
+function todays() {
+  const d = today(), keys = Object.keys(MIS), out = [];
+  for (let i = 0; out.length < 3; i++) { const k = keys[Math.floor(h2(d, i + 3) * keys.length)]; if (!out.includes(k)) out.push(k); }
+  if (!S.mis || S.mis.day !== d) S.mis = { day: d, p: {}, d: {} };
+  return out;
+}
+function mission(k, n = 1) {
+  if (!S.created || !todays().includes(k) || S.mis.d[k]) return;
+  S.mis.p[k] = (S.mis.p[k] || 0) + n; dirty = true;
+  if (S.mis.p[k] >= MIS[k]) { S.mis.d[k] = 1; S.coins += 15; S.stats.mis++; SFX.yes(); toast(w9("misDone"), 2.6); gainXP(50); }
+  misBox();
+}
+const clockTxt = () => { const f = (Date.now() / 1000 % DAY) / DAY, m = Math.floor(f * 1440); return `${f > 0.25 && f < 0.75 ? "☀️" : "🌙"} ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+function misBox() {
+  if (!S.created) { $("mis").style.display = "none"; return; }
+  const ks = todays(), M = w9("M");
+  $("mis").style.display = "";
+  $("mis").innerHTML = `<b>${clockTxt()} · ${w9("mis")}</b>` + ks.map((k) => `<div class="${S.mis.d[k] ? "ok" : ""}">${S.mis.d[k] ? "✅" : "▫️"} ${M[k]}${S.mis.d[k] ? "" : ` <i>${Math.floor(Math.min(S.mis.p[k] || 0, MIS[k]))}/${MIS[k]}</i>`}</div>`).join("");
+}
+
+// ---------- day and night, the same clock for everyone: a day in Citizenesia lasts 24 minutes ----------
+const DAY = 1440;
+function daylight() { const f = (Date.now() / 1000 % DAY) / DAY, s = Math.sin((f - 0.25) * Math.PI * 2); return clamp(s * 1.8 + 0.5); }
+
+// ---------- Sopir Antar: a parcel to a house door somewhere in the village, driven there by car ----------
+let job = null;
+const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 30, 16, 1, true).translate(0, 15, 0), new THREE.MeshBasicMaterial({ color: "#ffd84a", transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+beacon.visible = false; out.add(beacon);
+function startJob() {
+  const doors = [...negara.doors, ...homes.doors(), ...homesO.doors()].filter((d) => Math.hypot(d.x - player.x, d.z - player.z) > 15);
+  const d = doors[Math.floor(Math.random() * doors.length)]; if (!d) return;
+  job = { x: d.x + Math.sin(d.ry) * 1.6, z: d.z + Math.cos(d.ry) * 1.6 }; beacon.visible = true; SFX.beep(); toast(w9("jobGo"), 2.6); actsSig = null;
+}
+function finishJob() { job = null; beacon.visible = false; S.coins += 8; S.stats.deliv++; SFX.coin(); toast(w9("jobDone"), 2.4); gainXP(30); mission("deliv"); actsSig = null; hud(); }
+
+// ---------- the profile: who you are, your level, your stats, your code for moving to another phone ----------
+function openProfile() {
+  const lv = level(), a = 40 * (lv - 1) ** 2, b = 40 * lv ** 2, st = S.stats;
+  const km = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
+  $("paneBody").innerHTML = `<h2>${handle()}</h2><p class="tt">${title()} · ${w9("lv")} ${lv}</p>
+    <div class="xp"><i style="width:${Math.round((S.xp - a) / (b - a) * 100)}%"></i></div><p class="sm">${S.xp - a} / ${b - a} ${w9("xp")} · 🪙 ${S.free || powers() ? "∞" : S.coins}</p>
+    <h3>${w9("stats")}</h3><div class="st">
+    <span>🚶 ${w9("sWalk")}</span><b>${km(st.walk)}</b><span>🚗 ${w9("sDrive")}</span><b>${km(st.drive)}</b><span>💼 ${w9("sJobs")}</span><b>${st.jobs}</b>
+    <span>📦 ${w9("sDeliv")}</span><b>${st.deliv}</b><span>🎒 ${w9("sItems")}</span><b>${st.items}</b><span>🎯 ${w9("sMis")}</span><b>${st.mis}</b></div>
+    <p class="sm">${w9("code")}: <b>${S.code}</b> · ${cloudOK ? w9("cloud") : w9("cloudOff")}</p>`;
+  const row = document.createElement("div"); row.className = "row";
+  const mk = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "btn " + cls; b.textContent = txt; b.onclick = fn; row.appendChild(b); };
+  mk(w9("move"), "green", openMove); mk(w9("how"), "", () => { $("pane").style.display = "none"; openGrow(); }); mk(w9("close"), "yellow", () => ($("pane").style.display = "none"));
+  $("paneBody").appendChild(row); $("pane").style.display = "flex";
+}
+function openMove() {
+  $("paneBody").innerHTML = `<h2>${w9("move")}</h2><p class="sm">${w9("moveHow")}</p><div class="code">${S.code}-${S.key}</div>
+    <input id="moveIn" placeholder="${w9("movePh")}" autocomplete="off" spellcheck="false" /><p class="sm" id="moveMsg"></p>`;
+  const row = document.createElement("div"); row.className = "row";
+  const go = document.createElement("button"); go.className = "btn green"; go.textContent = w9("moveGo");
+  go.onclick = async () => {
+    const m = $("moveIn").value.trim().match(/^(CZ-[A-Z0-9]{4})-([a-z0-9]{12,32})$/i);
+    if (!m) { $("moveMsg").textContent = w9("moveBad"); return; }
+    $("moveMsg").textContent = "…"; await cloudSave();
+    const ok = await cloudLoad(m[1].toUpperCase(), m[2].toLowerCase(), true);
+    $("moveMsg").textContent = ok ? w9("moveOk") : w9("moveBad");
+  };
+  const cl = document.createElement("button"); cl.className = "btn yellow"; cl.textContent = w9("close"); cl.onclick = () => ($("pane").style.display = "none");
+  row.append(go, cl); $("paneBody").appendChild(row);
+  $("moveIn").addEventListener("keydown", (e) => e.stopPropagation());
+}
+$("moveBtn").onclick = () => { $("menu").style.display = "none"; openMove(); $("pane").style.display = "flex"; };
+$("pane").onclick = (e) => { if (e.target.id === "pane") $("pane").style.display = "none"; };
 // ---------- admin panel ----------
 const PLACES = {
   alun: () => placeAt("out", negara.spawn.x, negara.spawn.z, negara.spawn.yaw), makan: () => placeAt("out", SPOTS.makan.x, SPOTS.makan.z + 1.5, 0),
@@ -601,9 +717,10 @@ $("adminBtn").onclick = () => openAdmin();
 $("admin").onclick = (e) => { if (e.target.id === "admin") $("admin").style.display = "none"; };
 
 // ---------- the loop ----------
-let mapT = 0;
+let mapT = 0, cloudT = 9, clockT = 0;
 const clock = new THREE.Clock(); let t = 0, saveT = 0, drownT = 0, foreignShown = false;
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), camT = new THREE.Vector3(), tmp = new THREE.Vector3();
+const C_NIGHT = new THREE.Color("#1d2b4f"), C_NOW = new THREE.Color(), C_FNOW = new THREE.Color(), HEMI = out.children.find((o) => o.isHemisphereLight);
 const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf"), C_FOG = out.fog.color.clone();
 let nearSolids = [];
 function blockedXZ(x, z) {
@@ -614,7 +731,7 @@ function blockedXZ(x, z) {
   if (negara.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
   if (heightAt(x, z) > y + 0.7) return true;   // too steep
   const top = y + 1.3;
-  return [[r, 0], [-r, 0], [0, r], [0, -r]].some(([ox, oz]) => builder.blockedAt(x + ox, z + oz, y + 0.05, top));
+  return [[r, 0], [-r, 0], [0, r], [0, -r]].some(([ox, oz]) => builder.blockedAt(x + ox, z + oz, y + 0.05, top) || buildO.blockedAt(x + ox, z + oz, y + 0.05, top));
 }
 function tryMove(dx, dz) { if (!blockedXZ(player.x + dx, player.z)) player.x += dx; if (!blockedXZ(player.x, player.z + dz)) player.z += dz; }
 function camOK(x, y, z) {
@@ -625,7 +742,7 @@ function camOK(x, y, z) {
 }
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); t += dt;
-  const creating = $("creator").style.display === "flex", panel = ["grow", "admin", "bag", "chat"].some((id) => $(id).style.display === "flex");
+  const creating = $("creator").style.display === "flex", panel = ["grow", "admin", "bag", "chat", "pane"].some((id) => $(id).style.display === "flex");
   const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
   let mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + joy.x;
   let mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) + joy.y;
@@ -635,14 +752,14 @@ function frame() {
   if (want && napT >= 0) napT = -1;
   moving = want && !seated && !drive;
   if (drive && !panel) driveCar(dt, -mz, -mx, keys.has("Space"));
-  if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z).concat(homes.solids()); terrain.update(player.x, player.z, 2); }
+  if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z).concat(homes.solids(), homesO.solids()); terrain.update(player.x, player.z, 2); }
   const underwater = where === "out" && player.y < SEA;
   if (moving) {
     fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
     const base = 3.6 * (powers() ? 1.5 : 1);   // a walk that suits the small village
     const v = base * (run ? 1.7 : 1) * (underwater ? 0.5 : 1) * dt;
     const dx = (right.x * mx - fwd.x * mz) * v, dz = (right.z * mx - fwd.z * mz) * v;
-    tryMove(dx, dz); facing = Math.atan2(dx, dz);
+    const px0 = player.x, pz0 = player.z; tryMove(dx, dz); facing = Math.atan2(dx, dz); walked(Math.hypot(player.x - px0, player.z - pz0));
   }
   if (drive) { player.set(drive.x, drive.y, drive.z); facing = drive.ry; }
   if (seated) { player.x = seated.cx; player.z = seated.cz; facing = seated.facing; }
@@ -660,7 +777,7 @@ function frame() {
   // every house has a door: walk in, and back out through the door inside
   doorCool -= dt;
   if (where === "out" && doorCool <= 0 && !drive) {
-    for (const d of [...negara.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors()])
+    for (const d of [...negara.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors(), ...homesO.doors()])
       if (Math.hypot(player.x - d.x, player.z - d.z) < 1.05) { enterHouse(d); break; }
   }
   if (where === "house" && player.z > house.spawn.z + 0.75 && Math.abs(player.x) < 0.8) leaveHouse();
@@ -674,7 +791,7 @@ function frame() {
   // working
   if (workT >= 0) {
     workT += dt; $("progI").style.width = `${Math.min(100, workT / 4 * 100)}%`;
-    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; S.coins += 10; dirty = true; SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); hud(); }
+    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; S.coins += 10; dirty = true; SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); S.stats.jobs++; gainXP(20); mission("work"); hud(); }
   }
   // what can you use here?
   renderActs(creating || panel || building ? [] : findActs());
@@ -682,7 +799,7 @@ function frame() {
   items.update(t); poseCars(dt);
   if (logT > 0) { logT -= dt; if (logT <= 0) $("log").style.opacity = 0.35; }
   online.update(dt, t, S.created ? { n: handle(), k: kindNow(), l: S.look, x: round(player.x), y: round(player.y), z: round(player.z), f: round(facing), mv: moving || (!!drive && Math.abs(drive.speed) > 0.3), car: drive ? drive.i : null, in: where === "house" } : null);
-  mapT -= dt; if (mapT <= 0 && where === "out") { mapT = 0.1; drawMap($("map"), { player, facing: drive ? drive.ry : yaw + Math.PI, spots: SPOTS, cars, others: online.others, items: items.list, house: negara.doors }); }
+  mapT -= dt; if (mapT <= 0 && where === "out") { mapT = 0.1; drawMap($("map"), { job, player, facing: drive ? drive.ry : yaw + Math.PI, spots: SPOTS, cars, others: online.others, items: items.list, house: negara.doors }); }
 
   // the places move
   if (where === "house") house.update(camera.position);
@@ -700,7 +817,9 @@ function frame() {
   camera.lookAt(camT);
   const lift = creating && innerWidth <= 700;   // on a phone the creator sheet covers the bottom: show the character higher up
   if (lift !== camera.userData.lift) { camera.userData.lift = lift; if (lift) camera.setViewOffset(innerWidth, innerHeight, 0, innerHeight * 0.3, innerWidth, innerHeight); else camera.clearViewOffset(); }
-  if (where === "out") { const uw = camera.position.y < SEA; out.background.copy(uw ? C_DEEP : C_SKY); out.fog.color.copy(uw ? C_DEEP : C_FOG); out.fog.far = uw ? 22 : touch ? 85 : 120; }
+  if (where === "out") { const uw = camera.position.y < SEA, k = daylight(); C_NOW.copy(C_NIGHT).lerp(C_SKY, k); C_FNOW.copy(C_NIGHT).lerp(C_FOG, k);
+    out.background.copy(uw ? C_DEEP : C_NOW); out.fog.color.copy(uw ? C_DEEP : C_FNOW); if (HEMI) HEMI.intensity = 0.45 + 0.85 * k; sun.intensity = 0.35 + 2.15 * k;
+    if (job) { beacon.position.set(job.x, 0, job.z); beacon.rotation.y = t; if (drive && Math.hypot(player.x - job.x, player.z - job.z) < 3.5) finishJob(); } out.fog.far = uw ? 22 : touch ? 85 : 120; }
 
   // bubbles, toasts, autosave
   if (bubbleT > 0) {
@@ -711,6 +830,8 @@ function frame() {
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $("toast").classList.remove("on"); }
   if (stampT > 0) { stampT -= dt; if (stampT <= 0) $("stamp").classList.remove("on"); }
   saveT += dt; if (saveT > 3 && S.created) { saveT = 0; if (dirty || moving) save(); }
+  cloudT += dt; if (cloudT > 12) { cloudT = 0; if (cloudDirty) cloudSave(); }
+  clockT -= dt; if (clockT <= 0) { clockT = 1; misBox(); }
   renderer.render(scene(), camera);
   requestAnimationFrame(frame);
 }
@@ -722,4 +843,4 @@ addEventListener("pagehide", () => S.created && save());
 document.fonts.ready.then(() => labels());
 requestAnimationFrame(frame);
 if (DEBUG) window.__cz = { player, S, builder, negara, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get where() { return where; },
-  get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, cars, items, online, get drive() { return drive; }, getIn, getOut, takeItem, openBag, sendChat, get avatar() { return avatar; } };
+  get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get job() { return job; }, startJob, gainXP, mission, openProfile, cloudSave, onBuilds, buildO, homesO, cars, items, online, get drive() { return drive; }, getIn, getOut, takeItem, openBag, sendChat, get avatar() { return avatar; } };
