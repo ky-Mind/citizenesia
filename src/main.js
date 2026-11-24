@@ -10,6 +10,7 @@ import { createBuilder, BLOCKS } from "./build.js";
 import { t9n, getLang, setLang } from "./i18n.js";
 import { SFX } from "./sfx.js";
 import { createHomes, buildInterior, HOUSE_TYPES, typeOf, WALLS, ROOFS } from "./homes.js";
+import { createItems, createCars, createOnline, drawMap, carBox, ITEMS, itemName, w9 } from "./play.js";
 
 const $ = (id) => document.getElementById(id);
 const touch = matchMedia("(pointer: coarse)").matches;
@@ -48,12 +49,16 @@ const inBox = (b, x, z, m = 0) => x > b.x0 - m && x < b.x1 + m && z > b.z0 - m &
 const noBuild = (x, z) => Math.hypot(x, z + 1) < 15 || (Math.abs(x) < 7 && z > 6 && z < 13) || negara.solids.some((b) => inBox(b, x, z, 0.4));   // the village stays as in the reels
 const builder = createBuilder(out, camera, noBuild);
 const homes = createHomes(out);
+// open ground in and around the village: where cars park and things lie about
+const free = (x, z) => heightAt(x, z) > SEA + 0.3 && !negara.solids.some((b) => inBox(b, x, z, 0.7)) && !negara.doors.some((d) => Math.hypot(d.x - x, d.z - z) < 2)
+  && Object.values(negara.spots).every((s) => Math.hypot(s.x - x, s.z - z) > s.r + 0.3) && Math.hypot(x - negara.spawn.x, z - negara.spawn.z) > 2.5;
+const cars = createCars(out, free);
 
 // ---------- save ----------
 const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () => "CZ-" + Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
 let S = { name: "", code: newCode(), look: { cap: null, band: null, glasses: false, stache: false, helmet: false }, coins: 0, free: false, hired: false,
-  created: false, adm: { on: true, form: "president", size: 1, body: null, age: 25 }, where: "out", posOut: [negara.spawn.x, negara.spawn.z], blocks: [], homes: [] };
+  created: false, bag: [], items: {}, adm: { on: true, form: "president", size: 1, body: null, age: 25 }, where: "out", posOut: [negara.spawn.x, negara.spawn.z], blocks: [], homes: [] };
 try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null"); if (v1) Object.assign(S, { name: v1.name || "", look: v1.look || S.look, free: !!v1.free, created: !!v1.created }); } catch {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 let dirty = false, resetting = false;
@@ -61,11 +66,13 @@ const powers = () => isAdmin && S.adm.on;   // admin mode; "view as a player" tu
 const round = (v) => Math.round(v * 100) / 100;
 function save() {
   if (resetting) return;
-  S.blocks = builder.save(); S.homes = homes.list; S.where = "out";
+  S.blocks = builder.save(); S.homes = homes.list; S.items = items.save(); S.where = "out";
   if (where === "out") S.posOut = [round(player.x), round(player.z)];
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} dirty = false;
 }
 builder.load(S.blocks); homes.load(S.homes);
+const items = createItems(out, free, S.items || {});
+if (!Array.isArray(S.bag)) S.bag = [];
 
 // ---------- the numbers (world.json): the people (followers), the latest episode, the account links ----------
 let DATA = { day: 9, population: 0, decree: null, links: {} };
@@ -117,11 +124,13 @@ addEventListener("keydown", (e) => {
   if (typing(e)) return;
   keys.add(e.code);
   if (e.code === "Space") { e.preventDefault(); jump(); }
+  if (e.code === "KeyI") { $("bag").style.display === "flex" ? ($("bag").style.display = "none") : openBag(); }
   const ai = { KeyE: 0, Enter: 0, KeyR: 1, KeyF: 2, KeyG: 3 }[e.code];
   if (ai !== undefined && curActs[ai]) curActs[ai][1]();
   if (e.code === "KeyB") toggleBuild();
   if (e.code === "KeyX" && building) setTool(tool === "place" ? "del" : "place");
-  if (e.code === "Escape") { $("grow").style.display = "none"; $("admin").style.display = "none"; $("menu").style.display = "none"; }
+  if (e.code === "KeyT" && S.created) { e.preventDefault(); openChat(); setTimeout(() => $("chatIn").focus(), 30); }
+  if (e.code === "Escape") { $("bag").style.display = $("chat").style.display = "none"; $("grow").style.display = "none"; $("admin").style.display = "none"; $("menu").style.display = "none"; }
   if (building && /^Digit\d$/.test(e.code)) { const n = (+e.code.slice(5) + 9) % 10; if (BLOCKS[n]) pick(n); }
 });
 addEventListener("keyup", (e) => keys.delete(e.code));
@@ -201,10 +210,11 @@ function hud() {
   $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
   $("adminBtn").style.display = isAdmin ? "inline-block" : "none";
   const h = hint(); $("hint").textContent = h ? t9n(h) : "";
-  $("hint").style.display = h && !building ? "" : "none";
-  $("buildBtn").style.display = where === "out" ? "" : "none";
+  $("hint").style.display = h && !building && !drive ? "" : "none";
+  $("buildBtn").style.display = where === "out" && !drive ? "" : "none";
   if (where === "house") $("hint").textContent = t9n("hintHouse"), $("hint").style.display = "";
-  $("jumpBtn").textContent = t9n("jump");
+  $("jumpBtn").textContent = drive ? "🚗" : t9n("jump"); $("jumpBtn").style.display = drive ? "none" : "";
+  $("bagBtn").textContent = `🎒 ${S.bag.length}`; $("chatBtn").textContent = "💬";
 }
 function labels() {
   document.documentElement.lang = getLang();
@@ -352,20 +362,26 @@ function findActs() {
     if (best.k === "seat") { const st = best.seat; return [["aSit", () => { seated = { ...st, house: true }; player.x = st.cx; player.z = st.cz; facing = st.facing; }]]; }
     return HOUSE_ACTS[best.k]();
   }
+  if (drive) return [["!" + w9("exit"), getOut]];
+  const extra = [];
+  const it = items.near(player.x, player.z);
+  if (it) extra.push(["!" + w9("take") + " " + ITEMS[it.k].e, () => takeItem(it)]);
+  const car = cars.find((c) => Math.hypot(c.x - player.x, c.z - player.z) < 2.4);
+  if (car) extra.push(["!" + w9("drive"), () => getIn(car)]);
   for (const [k, s] of Object.entries(SPOTS)) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = k; } }
-  return best ? ACTS[best]() : [];
+  return [...extra, ...(best ? ACTS[best]() : [])];
 }
 function renderActs(list) {
   const sig = list.map((a) => a[0]).join("|"); if (sig === actsSig) return; actsSig = sig; curActs = list;
   const box = $("acts"); box.innerHTML = "";
   list.forEach(([k, fn], i) => {
     const b = document.createElement("button"); b.className = "btn yellow";
-    b.innerHTML = t9n(k) + (touch ? "" : `<small>${["E", "R", "F", "G"][i]}</small>`);
+    b.innerHTML = (k[0] === "!" ? k.slice(1) : t9n(k)) + (touch ? "" : `<small>${["E", "R", "F", "G"][i]}</small>`);
     b.onclick = () => fn(); box.appendChild(b);
   });
 }
 function jump() {
-  if (building || !avatar) return;
+  if (building || !avatar || drive) return;
   if (seated) { seated = null; return; }
   if (player.y <= ground(player.x, player.z, player.y) + 0.01) vy = 8.2;
 }
@@ -427,6 +443,113 @@ function buyHouse() {
   if (!fr) S.coins -= T.price; dirty = true; SFX.coin(); toast(t9n("houseBought", { n: fr ? 0 : T.price }), 2.4); houseGhost.visible = false; houseTarget = null; hud();
 }
 
+
+// ---------- cars: get in, drive with the joystick (up = gas, down = reverse, sideways = steer), get out ----------
+let drive = null;
+function getIn(car) { drive = car; seated = null; vy = 0; SFX.door(); toast(w9("driveHint"), 2.6); actsSig = null; hud(); }
+function getOut() {
+  const c = drive; c.speed = 0; drive = null; SFX.door();
+  for (const [sx, sz] of [[Math.cos(c.ry) * 1.7, -Math.sin(c.ry) * 1.7], [-Math.cos(c.ry) * 1.7, Math.sin(c.ry) * 1.7], [Math.sin(c.ry) * 2.4, Math.cos(c.ry) * 2.4], [-Math.sin(c.ry) * 2.4, -Math.cos(c.ry) * 2.4]]) {
+    player.set(c.x + sx, 0, c.z + sz); player.y = ground(player.x, player.z);
+    if (!blockedXZ(player.x, player.z)) break;
+  }
+  actsSig = null; hud();
+}
+function carHits(c) {
+  const y = c.y;
+  return carBox(c).some((p) => {
+    if (heightAt(p.x, p.z) < SEA + 0.15 && !powers()) return true;
+    if (heightAt(p.x, p.z) > y + 0.8) return true;
+    if (negara.solids.some((b) => b.h > y + 0.3 && inBox(b, p.x, p.z, p.r * 0.7))) return true;
+    if (nearSolids.some((b) => b.h > y + 0.3 && inBox(b, p.x, p.z, p.r * 0.7))) return true;
+    if (cars.some((o) => o !== c && carBox(o).some((q) => Math.hypot(q.x - p.x, q.z - p.z) < q.r + p.r * 0.8))) return true;
+    if (online.solids().some((o) => Math.hypot(o.x - p.x, o.z - p.z) < o.r + p.r * 0.6)) return true;
+    return builder.blockedAt(p.x, p.z, y + 0.05, y + 1.2);
+  });
+}
+function driveCar(dt, gas, steer, brake) {
+  const c = drive, top = powers() ? 22 : 15;
+  if (gas) c.speed += gas * (gas * c.speed < 0 ? 26 : 11) * dt; else c.speed *= 1 - Math.min(1, dt * 1.1);
+  if (brake) c.speed *= 1 - Math.min(1, dt * 5);
+  c.speed = clamp(c.speed, -5, top);
+  c.steer += (steer - c.steer) * Math.min(1, dt * 8);
+  const ry0 = c.ry; c.ry += c.steer * clamp(c.speed / 5, -1, 1) * 1.9 * dt;
+  const x0 = c.x, z0 = c.z;
+  c.x += Math.sin(c.ry) * c.speed * dt; c.z += Math.cos(c.ry) * c.speed * dt;
+  if (carHits(c)) { c.x = x0; c.z = z0; c.ry = ry0; if (Math.abs(c.speed) > 4) { SFX.no(); toast(w9("bump"), 1); } c.speed *= -0.25; }
+  c.y = Math.max(heightAt(c.x, c.z), powers() ? SEA : -9);
+}
+function poseCars(dt) {
+  for (const c of cars) {
+    c.g.position.set(c.x, c.y, c.z); c.g.rotation.y = c.ry;
+    c.wheels.forEach((w, i) => { w.children[0].rotation.x += c.speed * dt / 0.32; w.children[1].rotation.x = w.children[0].rotation.x; if (i < 2) w.rotation.y = c.steer * 0.45; });
+  }
+}
+
+// ---------- the bag: what you picked up ----------
+function takeItem(it) {
+  if (S.bag.length >= 12) { toast(w9("full")); SFX.no(); return; }
+  items.take(it); S.bag.push(it.k); dirty = true; SFX.pop(); toast(w9("taken", { i: itemName(it.k) }), 1.8); actsSig = null; hud();
+}
+function openBag() {
+  const P = $("bagList"); P.innerHTML = "";
+  $("bagTitle").textContent = `🎒 ${w9("bag")} (${S.bag.length}/12)`;
+  if (!S.bag.length) P.innerHTML = `<p>${w9("empty")}</p>`;
+  const counts = {}; S.bag.forEach((k) => (counts[k] = (counts[k] || 0) + 1));
+  Object.entries(counts).forEach(([k, n]) => {
+    const r = document.createElement("div"); r.className = "it";
+    r.innerHTML = `<span>${itemName(k)}${n > 1 ? ` ×${n}` : ""}</span>`;
+    const use = document.createElement("button"); use.className = "btn green"; use.textContent = w9("use");
+    use.onclick = () => { S.bag.splice(S.bag.indexOf(k), 1); const I = ITEMS[k]; if (I.coins) S.coins += I.coins; SFX[I.coins ? "coin" : "eat"](); toast(I.use[getLang()] || I.use.id, 2.6); dirty = true; hud(); openBag(); };
+    const drop = document.createElement("button"); drop.className = "btn dark"; drop.textContent = w9("drop");
+    drop.onclick = () => { if (where !== "out" || drive) return; S.bag.splice(S.bag.indexOf(k), 1); items.drop(k, player.x + Math.sin(facing) * 0.9, player.z + Math.cos(facing) * 0.9); toast(w9("dropped", { i: itemName(k) }), 1.6); dirty = true; hud(); openBag(); };
+    r.append(use, drop); P.appendChild(r);
+  });
+  $("bagClose").textContent = w9("close");
+  $("bag").style.display = "flex";
+}
+$("bagBtn").onclick = () => openBag();
+$("bagClose").onclick = () => ($("bag").style.display = "none");
+$("bag").onclick = (e) => { if (e.target.id === "bag") $("bag").style.display = "none"; };
+
+// ---------- online: the others, chat and emotes ----------
+const logLines = [];
+function log(line, mine) {
+  logLines.push({ line, t: 8 }); if (logLines.length > 5) logLines.shift();
+  $("log").innerHTML = logLines.map((l) => `<div>${l.line.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c])}</div>`).join("");
+  $("log").style.opacity = 1; logT = 8;
+}
+let logT = 0;
+const online = createOnline(out, {
+  onCount: (n, up) => { $("net").textContent = up ? `🟢 ${n} ${w9("online")}` : `⚪ ${w9("offline")}`; },
+  onLog: log,
+});
+function openChat() {
+  $("chatTitle").textContent = `💬 ${w9("chat")}`;
+  const Q = $("chatQuick"); Q.innerHTML = "";
+  w9("quick").forEach((q) => { const b = document.createElement("button"); b.className = "btn yellow"; b.textContent = q; b.onclick = () => sendChat(q); Q.appendChild(b); });
+  const E = $("chatEmo"); E.innerHTML = "";
+  ["👋", "😂", "❤️", "👍", "🎉", "😮"].forEach((e) => { const b = document.createElement("button"); b.className = "btn"; b.textContent = e; b.onclick = () => { online.emote(e); say(overPlayer, e, 2); $("chat").style.display = "none"; }; E.appendChild(b); });
+  $("chatIn").placeholder = w9("chatPh"); $("chatSend").textContent = w9("send"); $("chatClose").textContent = w9("close");
+  $("chat").style.display = "flex";
+}
+function sendChat(text) {
+  text = text.trim().slice(0, 80); if (!text) return;
+  online.chat(text); say(overPlayer, text, 3.5); $("chatIn").value = ""; $("chat").style.display = "none";
+}
+$("chatBtn").onclick = () => openChat();
+$("chatSend").onclick = () => sendChat($("chatIn").value);
+$("chatIn").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat($("chatIn").value); e.stopPropagation(); });
+$("chatClose").onclick = () => ($("chat").style.display = "none");
+$("chat").onclick = (e) => { if (e.target.id === "chat") $("chat").style.display = "none"; };
+
+// ---------- landscape: on a phone the game asks to be turned sideways and goes full screen on the first tap ----------
+$("rotT").textContent = w9("rotate"); $("rotS").textContent = w9("rotateSub");
+if (touch) addEventListener("pointerdown", function fs() {
+  const el = document.documentElement;
+  (el.requestFullscreen ? el.requestFullscreen({ navigationUI: "hide" }) : Promise.reject()).then(() => screen.orientation?.lock?.("landscape")).catch(() => {});
+}, { once: true, capture: true });
+
 // ---------- admin panel ----------
 const PLACES = {
   alun: () => placeAt("out", negara.spawn.x, negara.spawn.z, negara.spawn.yaw), makan: () => placeAt("out", SPOTS.makan.x, SPOTS.makan.z + 1.5, 0),
@@ -478,6 +601,7 @@ $("adminBtn").onclick = () => openAdmin();
 $("admin").onclick = (e) => { if (e.target.id === "admin") $("admin").style.display = "none"; };
 
 // ---------- the loop ----------
+let mapT = 0;
 const clock = new THREE.Clock(); let t = 0, saveT = 0, drownT = 0, foreignShown = false;
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), camT = new THREE.Vector3(), tmp = new THREE.Vector3();
 const C_SKY = new THREE.Color(SKY), C_DEEP = new THREE.Color("#5fa9cf"), C_FOG = out.fog.color.clone();
@@ -486,6 +610,7 @@ function blockedXZ(x, z) {
   const r = 0.35, y = player.y;
   const rm = room();
   if (rm) return !rm.walkable(x, z) || rm.solids.some((b) => y < b.h && inBox(b, x, z, r));
+  if (cars.some((c) => c !== drive && carBox(c).some((p) => Math.hypot(p.x - x, p.z - z) < p.r * 0.85 + r))) return true;
   if (negara.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
   if (heightAt(x, z) > y + 0.7) return true;   // too steep
   const top = y + 1.3;
@@ -500,7 +625,7 @@ function camOK(x, y, z) {
 }
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); t += dt;
-  const creating = $("creator").style.display === "flex", panel = $("grow").style.display === "flex" || $("admin").style.display === "flex";
+  const creating = $("creator").style.display === "flex", panel = ["grow", "admin", "bag", "chat"].some((id) => $(id).style.display === "flex");
   const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
   let mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + joy.x;
   let mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) + joy.y;
@@ -508,7 +633,8 @@ function frame() {
   const want = ml > 0.08 && !panel && workT < 0;
   if (want && seated) seated = null;
   if (want && napT >= 0) napT = -1;
-  moving = want && !seated;
+  moving = want && !seated && !drive;
+  if (drive && !panel) driveCar(dt, -mz, -mx, keys.has("Space"));
   if (where === "out") { nearSolids = terrain.solidsNear(player.x, player.z).concat(homes.solids()); terrain.update(player.x, player.z, 2); }
   const underwater = where === "out" && player.y < SEA;
   if (moving) {
@@ -518,27 +644,28 @@ function frame() {
     const dx = (right.x * mx - fwd.x * mz) * v, dz = (right.z * mx - fwd.z * mz) * v;
     tryMove(dx, dz); facing = Math.atan2(dx, dz);
   }
+  if (drive) { player.set(drive.x, drive.y, drive.z); facing = drive.ry; }
   if (seated) { player.x = seated.cx; player.z = seated.cz; facing = seated.facing; }
 
   // vertical: fall and jump; the admin walks on the sea
   let g = ground(player.x, player.z, player.y);
   if (powers() && where === "out") g = Math.max(g, SEA);
-  { vy -= 25 * dt; player.y += vy * dt; if (player.y <= g) { player.y = g; vy = 0; } if (g > player.y - 0.01 && g - player.y < 0.65) player.y = g; }
+  if (!drive) { vy -= 25 * dt; player.y += vy * dt; if (player.y <= g) { player.y = g; vy = 0; } if (g > player.y - 0.01 && g - player.y < 0.65) player.y = g; }
 
   // avatar pose
   avatar.g.position.copy(player);
-  avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); if (seated) { sit(avatar); avatar.g.position.y += 0.06; }
+  avatar.g.rotation.set(0, facing, 0); walk(avatar, t, moving && player.y <= g + 0.01, 1); avatar.g.visible = !drive; if (seated) { sit(avatar); avatar.g.position.y += 0.06; }
   if (napT >= 0) { napT += dt; if (napT > 3) { napT = -1; toast(t9n("napWake"), 1.8); SFX.pop(); } }
 
   // every house has a door: walk in, and back out through the door inside
   doorCool -= dt;
-  if (where === "out" && doorCool <= 0) {
+  if (where === "out" && doorCool <= 0 && !drive) {
     for (const d of [...negara.doors, ...terrain.doorsNear(player.x, player.z), ...homes.doors()])
       if (Math.hypot(player.x - d.x, player.z - d.z) < 1.05) { enterHouse(d); break; }
   }
   if (where === "house" && player.z > house.spawn.z + 0.75 && Math.abs(player.x) < 0.8) leaveHouse();
   // drowning: when your head goes under the sea
-  if (where === "out" && !powers() && player.y + 0.9 < SEA) {
+  if (where === "out" && !powers() && !drive && player.y + 0.9 < SEA) {
     drownT += dt; $("water").style.opacity = Math.min(1, drownT * 1.2);
     if (drownT > 0.6 && drownT - dt <= 0.6) { SFX.glug(); toast(t9n("drown"), 2.4); }
     if (drownT > 2.4) { drownT = 0; $("water").style.opacity = 0; placeAt("out", negara.spawn.x, negara.spawn.z, negara.spawn.yaw); toast(t9n("respawn"), 2.4); }
@@ -552,13 +679,19 @@ function frame() {
   // what can you use here?
   renderActs(creating || panel || building ? [] : findActs());
 
+  items.update(t); poseCars(dt);
+  if (logT > 0) { logT -= dt; if (logT <= 0) $("log").style.opacity = 0.35; }
+  online.update(dt, t, S.created ? { n: handle(), k: kindNow(), l: S.look, x: round(player.x), y: round(player.y), z: round(player.z), f: round(facing), mv: moving || (!!drive && Math.abs(drive.speed) > 0.3), car: drive ? drive.i : null, in: where === "house" } : null);
+  mapT -= dt; if (mapT <= 0 && where === "out") { mapT = 0.1; drawMap($("map"), { player, facing: drive ? drive.ry : yaw + Math.PI, spots: SPOTS, cars, others: online.others, items: items.list, house: negara.doors }); }
+
   // the places move
   if (where === "house") house.update(camera.position);
   else { negara.president.g.visible = !(powers() && S.adm.form === "president");   // the admin is the president
     negara.update(dt, camera.position); sun.position.set(player.x + 9, 22, player.z + 12); sun.target.position.copy(player); }
 
   // camera: third person, 360° around the player, pulled in when a wall, a block or the ceiling is in the way
-  const d = dist * (where === "house" ? 1.35 : 1);
+  if (drive && drag.id === null) { let dy = drive.ry + Math.PI - yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw += dy * Math.min(1, dt * 2.5); pitch += (0.32 - pitch) * Math.min(1, dt * 2); }
+  const d = dist * (where === "house" ? 1.35 : drive ? 1.5 : 1);
   camT.set(player.x, player.y + (seated ? 0.7 : 0.85) + (avatar.lift || 0) * avatar.g.scale.y * 1.3, player.z);
   const inHouse = where === "house" && !creating, cy = yaw, cp = inHouse ? Math.max(pitch, 0.9) : pitch;
   let k = d;
@@ -589,4 +722,4 @@ addEventListener("pagehide", () => S.created && save());
 document.fonts.ready.then(() => labels());
 requestAnimationFrame(frame);
 if (DEBUG) window.__cz = { player, S, builder, negara, terrain, heightAt, placeAt, refreshLevel, toggleBuild, get where() { return where; },
-  get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, get avatar() { return avatar; } };
+  get acts() { return curActs.map((a) => a[0]); }, openAdmin, homes, get house() { return house; }, enterHouse, toggleBuild, pick, setTool, aimHouse, buyHouse, get houseTarget() { return houseTarget; }, ndc, get isAdmin() { return isAdmin; }, PLACES, act: (i = 0) => curActs[i] && curActs[i][1](), get DATA() { return DATA; }, cars, items, online, get drive() { return drive; }, getIn, getOut, takeItem, openBag, sendChat, get avatar() { return avatar; } };
