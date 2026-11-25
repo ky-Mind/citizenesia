@@ -10,6 +10,7 @@ import { createBuilder, BLOCKS } from "./build.js";
 import { t9n, getLang, setLang } from "./i18n.js";
 import { SFX } from "./sfx.js";
 import { createHomes, buildInterior, HOUSE_TYPES, typeOf, WALLS, ROOFS } from "./homes.js";
+import { createNPCs } from "./npc.js";
 import { createItems, createCars, createOnline, drawMap, carBox, ITEMS, itemName, w9 } from "./play.js";
 
 const $ = (id) => document.getElementById(id);
@@ -50,13 +51,15 @@ sun.castShadow = quality.shadows; if (!out.children.includes(sun.target)) out.ad
 out.fog.far = touch ? 85 : 120;
 const terrain = createTerrain(out, touch ? 2 : 3);
 const inBox = (b, x, z, m = 0) => x > b.x0 - m && x < b.x1 + m && z > b.z0 - m && z < b.z1 + m;
-const noBuild = (x, z) => Math.hypot(x, z + 1) < 15 || (Math.abs(x) < 7 && z > 6 && z < 13) || negara.solids.some((b) => inBox(b, x, z, 0.4));   // the village stays as in the reels
+var buildO;
+const noBuild = (x, z) => Math.hypot(x, z + 1) < 15 || (Math.abs(x) < 7 && z > 6 && z < 13) || negara.solids.some((b) => inBox(b, x, z, 0.4)) || (typeof buildO === "object" && buildO.blockedAt(x, z, -4, 48));   // the village stays as in the reels; others' blocks stay theirs
 const builder = createBuilder(out, camera, noBuild);
 const homes = createHomes(out);
 // open ground in and around the village: where cars park and things lie about
 const free = (x, z) => heightAt(x, z) > SEA + 0.3 && !negara.solids.some((b) => inBox(b, x, z, 0.7)) && !negara.doors.some((d) => Math.hypot(d.x - x, d.z - z) < 2)
   && Object.values(negara.spots).every((s) => Math.hypot(s.x - x, s.z - z) > s.r + 0.3) && Math.hypot(x - negara.spawn.x, z - negara.spawn.z) > 2.5;
 const cars = createCars(out, free);
+const npcs = createNPCs(out, negara.spots, quality);
 
 // ---------- save ----------
 const KEY = "citizenesia.save.v2", ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -81,7 +84,7 @@ function save() {
 builder.load(S.blocks); homes.load(S.homes);
 const items = createItems(out, free, S.items || {});
 // what the other players built (from the server): drawn and solid, but not yours to change
-const buildO = createBuilder(out, camera, () => true), homesO = createHomes(out), worldB = new Map();
+buildO = createBuilder(out, camera, () => true); const homesO = createHomes(out), worldB = new Map();
 function onBuilds(list, all) {
   if (all) worldB.clear();
   list.forEach((b) => b.code !== S.code && worldB.set(b.code, b));
@@ -99,7 +102,8 @@ async function api(path, body, who = S) {
 let stateIn = false;
 function applyState(st) {
   const lv0 = level();
-  Object.assign(S, { coins: st.coins, xp: st.xp, hired: st.hired, bag: st.bag, stats: { ...S.stats, ...st.stats }, mis: st.mis });
+  if ((S.energy ?? 100) > 0 && st.energy <= 0 && stateIn) toast(w9("hungry"), 2.6);
+  Object.assign(S, { energy: st.energy ?? 100, coins: st.coins, xp: st.xp, hired: st.hired, bag: st.bag, stats: { ...S.stats, ...st.stats }, mis: st.mis });
   if (stateIn && level() > lv0) { stamp(`LV ${level()}`); SFX.born(); toast(w9("lvUp", { t: title() }), 3); }
   stateIn = true; cloudOK = true;
   if (!!st.admin !== isAdmin) { isAdmin = !!st.admin; refreshLevel(); }
@@ -272,7 +276,7 @@ function hud() {
   misBox();
   $("rakyat").textContent = `👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)}`;
   $("adminBtn").textContent = innerWidth <= 480 ? "⚙" : t9n("admin");
-  $("meCoins").textContent = S.free || powers() ? "∞" : S.coins;
+  $("meCoins").textContent = S.free || powers() ? "∞" : S.coins; $("meEn").textContent = Math.round(S.energy ?? 100); $("meEnW").style.color = (S.energy ?? 100) < 20 ? "#e0384b" : "";
   $("adminBtn").style.display = isAdmin ? "inline-block" : "none";
   const h = hint(); $("hint").textContent = h ? t9n(h) : "";
   $("hint").style.display = h && !building && !drive ? "" : "none";
@@ -398,7 +402,7 @@ function work() {
   if (!S.hired) { toast(t9n("reject"), 2.2); SFX.no(); act("work").then((j) => j.ok && setTimeout(() => { toast(t9n("hired")); SFX.yes(); }, 2300)); return; }
   if (workT < 0) { workT = 0; $("prog").style.display = "block"; $("progT").textContent = t9n("working"); }
 }
-const pay = (what, msg) => act("buy", { what }).then((j) => { if (j.ok) { SFX.coin(); toast(msg, 2.8); } else if (j.msg === "broke") toast(t9n("broke")); });
+const pay = (what, msg) => act("buy", { what }).then((j) => { if (j.ok) { SFX.coin(); toast(msg, 2.8); } else if (j.msg === "broke") toast(t9n("broke")); else if (j.msg === "closed") toast(w9("closed"), 2.4); });
 const presLine = () => t9n("presSays")[sayI++ % t9n("presSays").length].replace("{pop}", fmt(DATA.population));
 const SPOTS = negara.spots, ACTS = {
   president: () => [["aTalk", () => (mission("talk"), say(() => tmp.copy(negara.president.g.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 1.5, 0)), presLine(), 3.6))]],
@@ -431,7 +435,11 @@ function findActs() {
   const extra = [];
   const it = items.near(player.x, player.z);
   if (it) extra.push(["!" + w9("take") + " " + ITEMS[it.k].e, () => takeItem(it)]);
-  const car = cars.find((c) => Math.hypot(c.x - player.x, c.z - player.z) < 2.4);
+  const car = cars.find((c) => !c.taken && Math.hypot(c.x - player.x, c.z - player.z) < 2.4);
+  const pl = online.near(player.x, player.z);
+  if (pl) extra.push(["!👋 " + w9("greet") + " " + pl.s.n, () => openPlayer(pl)]);
+  const np = npcs.near(player.x, player.z);
+  if (np) extra.push(["!💬 " + np.name, () => say(() => tmp.copy(np.g.position).add(new THREE.Vector3(0, 1.7, 0)), np.line(clockHour()), 3.4)]);
   if (car) extra.push(["!" + w9("drive"), () => getIn(car)]);
   for (const [k, s] of Object.entries(SPOTS)) { const d = Math.hypot(player.x - s.x, player.z - s.z) / s.r; if (d < bd) { bd = d; best = k; } }
   return [...extra, ...(best ? ACTS[best]() : [])];
@@ -511,9 +519,9 @@ function buyHouse() {
 
 // ---------- cars: get in, drive with the joystick (up = gas, down = reverse, sideways = steer), get out ----------
 let drive = null;
-function getIn(car) { drive = car; seated = null; vy = 0; SFX.door(); toast(w9("driveHint"), 2.6); actsSig = null; hud(); }
+function getIn(car) { if (car.taken) { toast(w9("carBusy")); return; } online.car(car.i, true, car); drive = car; seated = null; vy = 0; SFX.door(); toast(w9("driveHint"), 2.6); actsSig = null; hud(); }
 function getOut() {
-  const c = drive; c.speed = 0; drive = null; SFX.door();
+  const c = drive; c.speed = 0; drive = null; SFX.door(); online.car(c.i, false, c);
   for (const [sx, sz] of [[Math.cos(c.ry) * 1.7, -Math.sin(c.ry) * 1.7], [-Math.cos(c.ry) * 1.7, Math.sin(c.ry) * 1.7], [Math.sin(c.ry) * 2.4, Math.cos(c.ry) * 2.4], [-Math.sin(c.ry) * 2.4, -Math.cos(c.ry) * 2.4]]) {
     player.set(c.x + sx, 0, c.z + sz); player.y = ground(player.x, player.z);
     if (!blockedXZ(player.x, player.z)) break;
@@ -527,7 +535,7 @@ function carHits(c) {
     if (heightAt(p.x, p.z) > y + 0.8) return true;
     if (negara.solids.some((b) => b.h > y + 0.3 && inBox(b, p.x, p.z, p.r * 0.7))) return true;
     if (nearSolids.some((b) => b.h > y + 0.3 && inBox(b, p.x, p.z, p.r * 0.7))) return true;
-    if (cars.some((o) => o !== c && carBox(o).some((q) => Math.hypot(q.x - p.x, q.z - p.z) < q.r + p.r * 0.8))) return true;
+    if (cars.some((o) => o !== c && !o.taken && carBox(o).some((q) => Math.hypot(q.x - p.x, q.z - p.z) < q.r + p.r * 0.8))) return true;
     if (online.solids().some((o) => Math.hypot(o.x - p.x, o.z - p.z) < o.r + p.r * 0.6)) return true;
     return builder.blockedAt(p.x, p.z, y + 0.05, y + 1.2) || buildO.blockedAt(p.x, p.z, y + 0.05, y + 1.2);
   });
@@ -546,6 +554,7 @@ function driveCar(dt, gas, steer, brake) {
 }
 function poseCars(dt) {
   for (const c of cars) {
+    c.g.visible = !c.taken;
     c.g.position.set(c.x, c.y, c.z); c.g.rotation.y = c.ry;
     c.wheels.forEach((w, i) => { w.children[0].rotation.x += c.speed * dt / 0.32; w.children[1].rotation.x = w.children[0].rotation.x; if (i < 2) w.rotation.y = c.steer * 0.45; });
   }
@@ -577,7 +586,12 @@ function openBag() {
       if (where !== "out" || drive) return; const x = player.x + Math.sin(facing) * 0.9, z = player.z + Math.cos(facing) * 0.9;
       act("drop", { k, x, z }).then((j) => { if (!j.ok) return; items.drop(k, x, z, j.id); toast(w9("dropped", { i: itemName(k) }), 1.6); openBag(); });
     };
-    r.append(use, drop); P.appendChild(r);
+    r.append(use, drop);
+    const atWarung = Math.hypot(player.x - SPOTS.warung.x, player.z - SPOTS.warung.z) < 4.5 || Math.hypot(player.x - SPOTS.bakso.x, player.z - SPOTS.bakso.z) < 4.5;
+    if (atWarung && k !== "koin") { const sb = document.createElement("button"); sb.className = "btn yellow"; sb.textContent = w9("sell"); sb.onclick = () => act("sell", { k }).then((j) => { if (j.ok) { SFX.coin(); toast(w9("sold", { n: j.price }), 1.6); openBag(); } else if (j.msg === "closed") toast(w9("closed")); }); r.appendChild(sb); }
+    const pl = online.near(player.x, player.z, 3.5);
+    if (pl && pl.s.c) { const gb = document.createElement("button"); gb.className = "btn"; gb.textContent = "🎁 " + w9("give", { n: pl.s.n }); gb.onclick = () => api("gift", { to: pl.s.c, k }).then((j) => { if (j.ok) { SFX.pop(); toast(w9("gave", { i: itemName(k), n: pl.s.n }), 2); openBag(); } else if (j.msg === "full") toast(w9("full")); }).catch(() => toast(w9("offAct"))); r.appendChild(gb); }
+    P.appendChild(r);
   });
   $("bagClose").textContent = w9("close");
   $("bag").style.display = "flex";
@@ -597,6 +611,16 @@ let logT = 0;
 const online = createOnline(out, {
   onCount: (n, up) => { $("net").textContent = up ? `🟢 ${n} ${w9("online")}` : `⚪ ${w9("offline")}`; },
   onLog: log, onBuilds, onTaken: (id, at) => items.setTaken(id, at),
+  onTime: (now) => { clockOff = now - Date.now(); },
+  onCar: (i, c, me) => {   // one driver per car, for everyone
+    const car = cars[i]; if (!car) return;
+    if (c.no) { if (drive === car) { getOut(); toast(w9("carBusy")); } car.taken = true; return; }
+    car.taken = !!c.by && c.by !== me;
+    if (drive !== car) { car.x = c.x; car.z = c.z; car.ry = c.ry; car.y = Math.max(heightAt(c.x, c.z), 0); car.speed = 0; }
+    else if (car.taken) { getOut(); toast(w9("carBusy")); }
+  },
+  onPm: (n, text, mine) => { log(`${mine ? w9("pmTo", { n }) : w9("pmFrom", { n })}: ${text}`); if (!mine) { SFX.beep(); toast(`${w9("pmFrom", { n })}: ${text}`, 3); } },
+  onGift: (m) => { if (m.to !== S.code) return; SFX.yes(); toast(w9("got", { n: m.from, i: itemName(m.k) }), 3); cloudLoad(S.code, S.key); },
 });
 function openChat() {
   $("chatTitle").textContent = `💬 ${w9("chat")}`;
@@ -650,7 +674,7 @@ function todays() {
 }
 // the server counts missions; the game only reports the moments it cannot see (talking, the gong, a chat line)
 function mission(k) { if (S.created && ["talk", "gong", "chat"].includes(k) && todays().includes(k) && !S.mis.d[k]) act("ev", { k }); }
-const clockTxt = () => { const f = (Date.now() / 1000 % DAY) / DAY, m = Math.floor(f * 1440); return `${f > 0.25 && f < 0.75 ? "☀️" : "🌙"} ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+const clockTxt = () => { const f = (gameNow() / 1000 % DAY) / DAY, m = Math.floor(f * 1440); return `${f > 0.25 && f < 0.75 ? "☀️" : "🌙"} ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
 function misBox() {
   if (!S.created) { $("mis").style.display = "none"; return; }
   const ks = todays(), M = w9("M");
@@ -660,7 +684,10 @@ function misBox() {
 
 // ---------- day and night, the same clock for everyone: a day in Citizenesia lasts 24 minutes ----------
 const DAY = 1440;
-function daylight() { const f = (Date.now() / 1000 % DAY) / DAY, s = Math.sin((f - 0.25) * Math.PI * 2); return clamp(s * 1.8 + 0.5); }
+let clockOff = 0;   // the server's clock minus this phone's clock, so day and night match for everyone
+const gameNow = () => Date.now() + clockOff;
+const clockHour = () => ((gameNow() / 1000) % DAY) / 60;
+function daylight() { const f = (gameNow() / 1000 % DAY) / DAY, s = Math.sin((f - 0.25) * Math.PI * 2); return clamp(s * 1.8 + 0.5); }
 
 // ---------- Sopir Antar: a parcel to a house door somewhere in the village, driven there by car ----------
 let job = null;
@@ -685,8 +712,27 @@ function openProfile() {
     <p class="sm">${w9("code")}: <b>${S.code}</b> · ${cloudOK ? w9("cloud") : w9("cloudOff")}</p>`;
   const row = document.createElement("div"); row.className = "row";
   const mk = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "btn " + cls; b.textContent = txt; b.onclick = fn; row.appendChild(b); };
-  mk(w9("move"), "green", openMove); mk(w9("how"), "", () => { $("pane").style.display = "none"; openGrow(); }); mk(w9("close"), "yellow", () => ($("pane").style.display = "none"));
+  mk(w9("top"), "dark", openTop); mk(w9("move"), "green", openMove); mk(w9("how"), "", () => { $("pane").style.display = "none"; openGrow(); }); mk(w9("close"), "yellow", () => ($("pane").style.display = "none"));
   $("paneBody").appendChild(row); $("pane").style.display = "flex";
+}
+async function openTop() {
+  $("paneBody").innerHTML = `<h2>${w9("topT")}</h2><div class="st" id="topList">…</div>`;
+  const row = document.createElement("div"); row.className = "row"; const cl = document.createElement("button"); cl.className = "btn yellow"; cl.textContent = w9("close"); cl.onclick = () => ($("pane").style.display = "none"); row.appendChild(cl); $("paneBody").appendChild(row);
+  try {
+    const j = await api("top", {});
+    $("topList").innerHTML = j.top.map((p, i) => `<span>${["🥇", "🥈", "🥉"][i] || i + 1 + "."} ${String(p.name || "?").replace(/[<>&]/g, "")}</span><b>${w9("lv")} ${level(p.xp)}</b>`).join("") || "—";
+  } catch { $("topList").textContent = w9("offAct"); }
+}
+// another player close by: say hi, send a private message
+function openPlayer(o) {
+  $("paneBody").innerHTML = `<h2>👋 ${String(o.s.n).replace(/[<>&]/g, "")}</h2><p class="sm">${o.s.k === "president" ? "Pak Presiden" : w9("titles")[0]}</p><input id="pmIn" maxlength="80" placeholder="${w9("pmPh")}" autocomplete="off" />`;
+  const row = document.createElement("div"); row.className = "row";
+  const mk = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "btn " + cls; b.textContent = txt; b.onclick = fn; row.appendChild(b); };
+  mk("👋", "", () => { online.emote("👋"); say(overPlayer, "👋", 2); $("pane").style.display = "none"; });
+  mk(w9("send"), "green", () => { const t = $("pmIn").value.trim(); if (t) online.pm(o.id, t); $("pane").style.display = "none"; });
+  mk(w9("close"), "yellow", () => ($("pane").style.display = "none"));
+  $("paneBody").appendChild(row); $("pmIn").addEventListener("keydown", (e) => e.stopPropagation());
+  $("pane").style.display = "flex";
 }
 function openMove() {
   $("paneBody").innerHTML = `<h2>${w9("move")}</h2><p class="sm">${w9("moveHow")}</p><div class="code">${S.code}-${S.key}</div>
@@ -757,7 +803,7 @@ $("adminBtn").onclick = () => openAdmin();
 $("admin").onclick = (e) => { if (e.target.id === "admin") $("admin").style.display = "none"; };
 
 // ---------- the loop ----------
-let mapT = 0, cloudT = 9, clockT = 0;
+let loadedOnce = false, mapT = 0, cloudT = 9, clockT = 0;
 const clock = new THREE.Clock(); let t = 0, saveT = 0, drownT = 0, foreignShown = false;
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), camT = new THREE.Vector3(), tmp = new THREE.Vector3();
 const C_NIGHT = new THREE.Color("#1d2b4f"), C_NOW = new THREE.Color(), C_FNOW = new THREE.Color(), HEMI = out.children.find((o) => o.isHemisphereLight);
@@ -767,7 +813,7 @@ function blockedXZ(x, z) {
   const r = 0.35, y = player.y;
   const rm = room();
   if (rm) return !rm.walkable(x, z) || rm.solids.some((b) => y < b.h && inBox(b, x, z, r));
-  if (cars.some((c) => c !== drive && carBox(c).some((p) => Math.hypot(p.x - x, p.z - z) < p.r * 0.85 + r))) return true;
+  if (cars.some((c) => c !== drive && !c.taken && carBox(c).some((p) => Math.hypot(p.x - x, p.z - z) < p.r * 0.85 + r))) return true;
   if (negara.solids.some((b) => y < b.h && inBox(b, x, z, r)) || nearSolids.some((b) => y < b.h && inBox(b, x, z, r))) return true;
   if (heightAt(x, z) > y + 0.7) return true;   // too steep
   const top = y + 1.3;
@@ -796,7 +842,7 @@ function frame() {
   const underwater = where === "out" && player.y < SEA;
   if (moving) {
     fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(-fwd.z, 0, fwd.x);
-    const base = 3.6 * (powers() ? 1.5 : 1);   // a walk that suits the small village
+    const base = 3.6 * (powers() ? 1.5 : 1) * ((S.energy ?? 100) <= 0 && !powers() ? 0.6 : 1);   // a walk that suits the small village
     const v = base * (run ? 1.7 : 1) * (underwater ? 0.5 : 1) * dt;
     const dx = (right.x * mx - fwd.x * mz) * v, dz = (right.z * mx - fwd.z * mz) * v;
     const px0 = player.x, pz0 = player.z; tryMove(dx, dz); facing = Math.atan2(dx, dz); walked(Math.hypot(player.x - px0, player.z - pz0));
@@ -831,14 +877,14 @@ function frame() {
   // working
   if (workT >= 0) {
     workT += dt; $("progI").style.width = `${Math.min(100, workT / 4 * 100)}%`;
-    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; act("work").then((j) => { if (j.ok) { SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); } }); }
+    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; act("work").then((j) => { if (j.ok) { SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); } else if (j.msg === "tired") toast(w9("tired"), 2.6); }); }
   }
   // what can you use here?
   renderActs(creating || panel || building ? [] : findActs());
 
-  items.update(t); poseCars(dt);
+  items.update(t); poseCars(dt); if (where === "out") npcs.update(dt, t, clockHour());
   if (logT > 0) { logT -= dt; if (logT <= 0) $("log").style.opacity = 0.35; }
-  online.update(dt, t, S.created ? { n: handle(), k: kindNow(), l: S.look, x: round(player.x), y: round(player.y), z: round(player.z), f: round(facing), mv: moving || (!!drive && Math.abs(drive.speed) > 0.3), car: drive ? drive.i : null, in: where === "house" } : null);
+  online.update(dt, t, S.created ? { c: S.code, n: handle(), k: kindNow(), l: S.look, x: round(player.x), y: round(player.y), z: round(player.z), f: round(facing), mv: moving || (!!drive && Math.abs(drive.speed) > 0.3), car: drive ? drive.i : null, in: where === "house" } : null);
   mapT -= dt; if (mapT <= 0 && where === "out") { mapT = 0.1; drawMap($("map"), { job, player, facing: drive ? drive.ry : yaw + Math.PI, spots: SPOTS, cars, others: online.others, items: items.list, house: negara.doors }); }
 
   // the places move
@@ -874,6 +920,7 @@ function frame() {
   reportMove(dt);
   clockT -= dt; if (clockT <= 0) { clockT = 1; misBox(); }
   renderer.render(scene(), camera);
+  if (!loadedOnce) { loadedOnce = true; const l = $("load"); l.style.opacity = 0; setTimeout(() => l.remove(), 500); }
   requestAnimationFrame(frame);
 }
 

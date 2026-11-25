@@ -14,7 +14,7 @@ const W = {
     lv: "LV", xp: "XP", prof: "PROFIL", code: "Kode pemain", move: "📲 PINDAH HP", moveHow: "Simpan kode rahasia ini. Di HP lain buka menu ☰ → PINDAH HP, lalu tempel kode ini. Jangan bagikan ke orang lain.", movePh: "Tempel kode CZ-…", moveGo: "MASUK", moveBad: "Kode tidak ditemukan", moveOk: "Berhasil! Memuat data…", cloud: "☁️ Tersimpan di server", cloudOff: "☁️ Belum tersimpan di server",
     stats: "Statistik", sWalk: "Jalan kaki", sDrive: "Menyetir", sJobs: "Kerja", sDeliv: "Paket diantar", sItems: "Barang diambil", sMis: "Misi selesai",
     mis: "🎯 Misi hari ini", misDone: "Misi selesai! +15 🪙 +50 XP", lvUp: "Naik level! Sekarang {t}", how: "CARA KERJA",
-    job: "📦 ANTAR PAKET", jobGo: "Antar paket ke tanda 📦 di peta!", jobDone: "Paket sampai! +8 🪙 +30 XP", jobCancel: "BATAL ANTAR", jobSlow: "Terlalu cepat, paket belum dihitung", gone: "Sudah diambil orang lain", offAct: "Server tidak terjangkau, coba lagi",
+    job: "📦 ANTAR PAKET", jobGo: "Antar paket ke tanda 📦 di peta!", jobDone: "Paket sampai! +8 🪙 +30 XP", jobCancel: "BATAL ANTAR", you: "@kamu", closed: "Tutup. Buka lagi jam 06:00 🌙", tired: "Tenagamu habis ⚡ Makan dulu di Rumah Makan Rakyat", hungry: "Lapar… jalanmu jadi pelan. Makan dulu ya 🍛", sell: "JUAL", sold: "Terjual! +{n} 🪙", give: "BERI KE {n}", gave: "🎁 {i} diberikan ke {n}", got: "🎁 {n} memberimu {i}!", greet: "SAPA", pmPh: "Pesan pribadi…", pmTo: "💌 ke {n}", pmFrom: "💌 dari {n}", carBusy: "Mobil ini sedang dipakai pemain lain", top: "🏆 PERINGKAT", topT: "🏆 Peringkat Citizenesia", npcTalk: "NGOBROL", full2: "Kampung penuh (60 pemain). Coba lagi sebentar.", loading: "Memuat kampung…", jobSlow: "Terlalu cepat, paket belum dihitung", gone: "Sudah diambil orang lain", offAct: "Server tidak terjangkau, coba lagi",
     titles: ["Warga Baru", "Warga Rajin", "Tetangga Teladan", "Tokoh Kampung", "Pejabat RT", "Pahlawan Citizenesia"],
     M: { makan: "Makan di Rumah Makan Rakyat", item: "Ambil 3 barang", drive: "Menyetir 300 m", work: "Kerja 2 kali", deliv: "Antar 2 paket", talk: "Ngobrol dengan Pak Presiden", gong: "Pukul gong", chat: "Kirim 1 chat", jajan: "Jajan di warung", walk: "Jalan kaki 200 m" },
     driveHint: "Joystick ke atas = gas, ke bawah = mundur, ke samping = belok", bump: "Duk! Nabrak 😅",
@@ -25,7 +25,7 @@ const W = {
     lv: "LV", xp: "XP", prof: "PROFILE", code: "Player code", move: "📲 MOVE PHONE", moveHow: "Keep this secret code. On another phone open menu ☰ → MOVE PHONE and paste it. Don't share it.", movePh: "Paste code CZ-…", moveGo: "LOG IN", moveBad: "Code not found", moveOk: "Done! Loading your data…", cloud: "☁️ Saved on the server", cloudOff: "☁️ Not saved on the server yet",
     stats: "Stats", sWalk: "Walked", sDrive: "Driven", sJobs: "Jobs", sDeliv: "Parcels delivered", sItems: "Things picked up", sMis: "Missions done",
     mis: "🎯 Today's missions", misDone: "Mission done! +15 🪙 +50 XP", lvUp: "Level up! You are now {t}", how: "HOW IT WORKS",
-    job: "📦 DELIVER", jobGo: "Take the parcel to the 📦 on the map!", jobDone: "Delivered! +8 🪙 +30 XP", jobCancel: "STOP DELIVERY", jobSlow: "Too fast, the parcel did not count", gone: "Someone else took it", offAct: "Server unreachable, try again",
+    job: "📦 DELIVER", jobGo: "Take the parcel to the 📦 on the map!", jobDone: "Delivered! +8 🪙 +30 XP", jobCancel: "STOP DELIVERY", you: "@you", closed: "Closed. Opens again at 06:00 🌙", tired: "No energy left ⚡ Eat at the people's restaurant first", hungry: "Hungry… you walk slower. Eat something 🍛", sell: "SELL", sold: "Sold! +{n} 🪙", give: "GIVE TO {n}", gave: "🎁 {i} given to {n}", got: "🎁 {n} gave you {i}!", greet: "SAY HI", pmPh: "Private message…", pmTo: "💌 to {n}", pmFrom: "💌 from {n}", carBusy: "Another player is driving this car", top: "🏆 RANKING", topT: "🏆 Citizenesia ranking", npcTalk: "TALK", full2: "The village is full (60 players). Try again soon.", loading: "Loading the village…", jobSlow: "Too fast, the parcel did not count", gone: "Someone else took it", offAct: "Server unreachable, try again",
     titles: ["Newcomer", "Hard Worker", "Model Neighbour", "Village Figure", "RT Official", "Hero of Citizenesia"],
     M: { makan: "Eat at the people's restaurant", item: "Pick up 3 things", drive: "Drive 300 m", work: "Work 2 times", deliv: "Deliver 2 parcels", talk: "Talk to Pak Presiden", gong: "Hit the gong", chat: "Send 1 chat", jajan: "Buy a snack at the warung", walk: "Walk 200 m" },
     driveHint: "Joystick up = gas, down = reverse, sideways = steer", bump: "Bonk! Crashed 😅",
@@ -65,7 +65,7 @@ export function createItems(scene, free, saved) {
   for (let i = 0; n < 26 && i < 400; i++) {
     const a = h2(i, 7) * Math.PI * 2, r = 4 + h2(i, 13) * 30, x = Math.cos(a) * r, z = Math.sin(a) * r - 1;
     if (!free(x, z)) continue;
-    list.push({ id: "w" + i, k: kinds[n % kinds.length], x, z }); n++;
+    list.push({ id: "w" + i, k: kinds[Math.floor(h2(i, 29) * kinds.length)], x, z }); n++;   // the server knows the same kind for wN
   }
   (saved.dropped || []).forEach((d) => list.push({ ...d }));
   list.forEach((it) => { it.g = itemMesh(it.k); it.g.position.set(it.x, 0.45, it.z); scene.add(it.g); });
@@ -136,7 +136,7 @@ function textSprite(txt, bg = "#fffdf4", fg = "#3a2414") {
 }
 
 // ---------- online: everyone in the same village ----------
-export function createOnline(scene, { onCount, onLog, onBuilds, onTaken }) {
+export function createOnline(scene, { onCount, onLog, onBuilds, onTaken, onCar, onPm, onGift, onTime }) {
   const others = new Map();
   let ws = null, me = null, up = false, tries = 0, sendT = 0, last = "";
   function connect() {
@@ -146,12 +146,17 @@ export function createOnline(scene, { onCount, onLog, onBuilds, onTaken }) {
     ws.onerror = () => {};
     ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
-      if (m.t === "welcome") { me = m.id; onTaken && Object.entries(m.taken || {}).forEach(([id, at]) => onTaken(id, at)); onBuilds && onBuilds(m.builds || [], true); m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
+      if (m.t === "welcome") { me = m.id; onTime && onTime(m.now); (m.cars || []).forEach((c) => onCar && onCar(c.i, c, me)); onTaken && Object.entries(m.taken || {}).forEach(([id, at]) => onTaken(id, at)); onBuilds && onBuilds(m.builds || [], true); m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
       else if (m.t === "p") { const fresh = !others.has(m.id); upsert(m.id, m); if (fresh) { onLog(w9("joined", { n: m.n })); onCount(others.size + 1, true); } }
+      else if (m.t === "car") onCar && onCar(m.i, m, me);
+      else if (m.t === "carNo") onCar && onCar(m.i, { no: true }, me);
+      else if (m.t === "pm") onPm && onPm(others.get(m.from)?.s.n || "?", m.text, false);
+      else if (m.t === "pmOk") onPm && onPm(others.get(m.to)?.s.n || "?", m.text, true);
+      else if (m.t === "gift") onGift && onGift(m);
       else if (m.t === "it") onTaken && onTaken(m.id, m.at);
       else if (m.t === "w") onBuilds && onBuilds([m], false);
       else if (m.t === "bye") { const o = others.get(m.id); if (o) { scene.remove(o.root); others.delete(m.id); onLog(w9("left", { n: o.s.n })); onCount(others.size + 1, true); } }
-      else if (m.t === "c") { onLog(`${m.id === me ? "@" + "kamu" : others.get(m.id)?.s.n || "?"}: ${m.text}`, m.id === me); const o = others.get(m.id); if (o) bubble(o, m.text); }
+      else if (m.t === "c") { onLog(`${m.id === me ? w9("you") : others.get(m.id)?.s.n || "?"}: ${m.text}`, m.id === me); const o = others.get(m.id); if (o) bubble(o, m.text); }
       else if (m.t === "e") { const o = others.get(m.id); if (o) bubble(o, m.e, true); }
     };
   }
@@ -194,6 +199,10 @@ export function createOnline(scene, { onCount, onLog, onBuilds, onTaken }) {
         if (msg !== last || sendT < -2) { ws.send(msg); last = msg; sendT = 0.1; }
       }
     },
+    get me() { return me; },
+    car(i, on, c) { if (up) ws.send(JSON.stringify({ t: "car", i, on, x: c.x, z: c.z, ry: c.ry })); },
+    pm(to, text) { if (up && text.trim()) ws.send(JSON.stringify({ t: "pm", to, text })); },
+    near(x, z, r = 2.6) { let best = null, bd = r; for (const [id, o] of others) { if (o.s.in || o.car) continue; const d = Math.hypot(o.pos.x - x, o.pos.z - z); if (d < bd) { bd = d; best = { id, ...o }; } } return best; },
     chat(text) { if (up && text.trim()) ws.send(JSON.stringify({ t: "c", text })); },
     emote(e) { if (up) ws.send(JSON.stringify({ t: "e", e })); },
     solids() { return [...others.values()].filter((o) => o.car && o.root.visible).map((o) => ({ x: o.pos.x, z: o.pos.z, r: 1.3 })); },

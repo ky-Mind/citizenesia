@@ -78,3 +78,9 @@ Add `?debug` to the address to get `window.__cz` for tests.
 - The in-app comment box online (a small server that stores comments for the census).
 - Players chatting with each other (needs the same server), with admin checks done on the server.
 - Ready-made buildings to buy, jobs beyond the eternal internship, and a shared world for several players.
+
+## v0.5 — an online village (Nov 2026)
+- **Server decides the economy** (`worker/index.js`, Durable Object `Room`, SQLite): coins, XP, energy ⚡, the bag, stats, daily missions and build costs change only through checked actions (`POST /api/act`). The phone's save (`/api/save`) keeps the look, position and builds. The account key travels in the request body.
+- **Live together** (WebSocket `/api/room`): players, chat (with a word filter), emotes, private messages, gifts, one driver per car, shared item pickups, everyone's houses and blocks.
+- **Life**: energy (eat to refill; shops open 06:00–22:00 on the shared 24-minute day), selling things at the warung, the Sopir Antar parcel job, levels and titles, a ranking, villagers (NPCs) on a daily schedule (`src/npc.js`).
+- **Admin**: `/kymind` asks for the admin code once; the server checks it (secret `ADMIN_KEY`). Local copy: `.admin-secrets.json` / `.dev.vars` (both ignored by git). Deploy: `npm run deploy -- --secrets-file .admin-secrets.json`.

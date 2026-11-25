@@ -151,6 +151,12 @@ body.building #actions{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 70px)
 #pane .code{font:400 15px 'Archivo Black';word-break:break-all;background:#fff;border:3px dashed var(--red);border-radius:12px;padding:8px;margin:8px 0;user-select:text;-webkit-user-select:text}
 #pane input{width:100%;font:700 14px Poppins;border:3px solid #e2d6c0;border-radius:12px;padding:8px 10px;outline:none;user-select:text;-webkit-user-select:text}
 @media (max-height:520px){#mis{top:152px;width:180px;font-size:10px}}
+#load{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:var(--sky);transition:opacity .45s}
+#load b{font:400 clamp(34px,8vw,64px) 'Archivo Black';color:#fff;-webkit-text-stroke:8px var(--ink);paint-order:stroke fill}
+#load span{font:700 14px Poppins;color:#5a4634}
+#load i{width:160px;height:10px;border-radius:5px;background:#fff;overflow:hidden;position:relative}
+#load i::after{content:"";position:absolute;inset:0;width:40%;background:var(--pink);border-radius:5px;animation:ld 1s ease-in-out infinite alternate}
+@keyframes ld{from{left:0}to{left:60%}}
 #rotate{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--sky);text-align:center;padding:24px}
 #rotate b{font:400 26px/1.2 'Archivo Black';color:var(--ink)}#rotate span{font:700 14px Poppins;color:#5a4634}
 #rotate i{font-style:normal;font-size:64px;animation:spin 1.6s ease-in-out infinite}
@@ -161,8 +167,9 @@ body.building #actions{bottom:calc(max(14px,env(safe-area-inset-bottom)) + 70px)
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="load"><b>CITIZENESIA</b><span>Memuat kampung… · Loading the village…</span><i></i></div>
 <div id="flash"></div><div id="water"></div><div id="stamp"></div>
-<div id="topbar" class="hud"><div id="me" class="card"><span class="nm" id="meName">@namamu</span><span class="lv" id="meLv">RAKYAT</span><span class="co">🪙 <span id="meCoins">0</span></span></div>
+<div id="topbar" class="hud"><div id="me" class="card"><span class="nm" id="meName">@namamu</span><span class="lv" id="meLv">RAKYAT</span><span class="co">🪙 <span id="meCoins">0</span></span><span class="co" id="meEnW">⚡<span id="meEn">100</span></span></div>
 <div id="topR"><span id="net" class="pill">⚪</span><button class="btn yellow" id="bagBtn">🎒</button><button class="btn" id="chatBtn">💬</button><button class="btn green" id="adminBtn">ADMIN</button><button class="btn yellow" id="langBtn">EN</button><button class="btn dark" id="menuBtn">☰</button></div></div>
 <div id="menu" class="card"><button class="btn yellow" id="growBtn"></button><button class="btn green" id="moveBtn"></button><button class="btn dark" id="joyBtn"></button><button class="btn" id="editBtn"></button><button class="btn red" id="resetBtn"></button></div>
 <div id="msgs" class="hud"><div id="rakyat" class="pill" style="background:#2f6b4f"></div><div id="hint" class="pill"></div><div id="toast" class="card"></div></div>
