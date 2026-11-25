@@ -14,7 +14,7 @@ const W = {
     lv: "LV", xp: "XP", prof: "PROFIL", code: "Kode pemain", move: "📲 PINDAH HP", moveHow: "Simpan kode rahasia ini. Di HP lain buka menu ☰ → PINDAH HP, lalu tempel kode ini. Jangan bagikan ke orang lain.", movePh: "Tempel kode CZ-…", moveGo: "MASUK", moveBad: "Kode tidak ditemukan", moveOk: "Berhasil! Memuat data…", cloud: "☁️ Tersimpan di server", cloudOff: "☁️ Belum tersimpan di server",
     stats: "Statistik", sWalk: "Jalan kaki", sDrive: "Menyetir", sJobs: "Kerja", sDeliv: "Paket diantar", sItems: "Barang diambil", sMis: "Misi selesai",
     mis: "🎯 Misi hari ini", misDone: "Misi selesai! +15 🪙 +50 XP", lvUp: "Naik level! Sekarang {t}", how: "CARA KERJA",
-    job: "📦 ANTAR PAKET", jobGo: "Antar paket ke tanda 📦 di peta!", jobDone: "Paket sampai! +8 🪙 +30 XP", jobCancel: "BATAL ANTAR",
+    job: "📦 ANTAR PAKET", jobGo: "Antar paket ke tanda 📦 di peta!", jobDone: "Paket sampai! +8 🪙 +30 XP", jobCancel: "BATAL ANTAR", jobSlow: "Terlalu cepat, paket belum dihitung", gone: "Sudah diambil orang lain", offAct: "Server tidak terjangkau, coba lagi",
     titles: ["Warga Baru", "Warga Rajin", "Tetangga Teladan", "Tokoh Kampung", "Pejabat RT", "Pahlawan Citizenesia"],
     M: { makan: "Makan di Rumah Makan Rakyat", item: "Ambil 3 barang", drive: "Menyetir 300 m", work: "Kerja 2 kali", deliv: "Antar 2 paket", talk: "Ngobrol dengan Pak Presiden", gong: "Pukul gong", chat: "Kirim 1 chat", jajan: "Jajan di warung", walk: "Jalan kaki 200 m" },
     driveHint: "Joystick ke atas = gas, ke bawah = mundur, ke samping = belok", bump: "Duk! Nabrak 😅",
@@ -25,7 +25,7 @@ const W = {
     lv: "LV", xp: "XP", prof: "PROFILE", code: "Player code", move: "📲 MOVE PHONE", moveHow: "Keep this secret code. On another phone open menu ☰ → MOVE PHONE and paste it. Don't share it.", movePh: "Paste code CZ-…", moveGo: "LOG IN", moveBad: "Code not found", moveOk: "Done! Loading your data…", cloud: "☁️ Saved on the server", cloudOff: "☁️ Not saved on the server yet",
     stats: "Stats", sWalk: "Walked", sDrive: "Driven", sJobs: "Jobs", sDeliv: "Parcels delivered", sItems: "Things picked up", sMis: "Missions done",
     mis: "🎯 Today's missions", misDone: "Mission done! +15 🪙 +50 XP", lvUp: "Level up! You are now {t}", how: "HOW IT WORKS",
-    job: "📦 DELIVER", jobGo: "Take the parcel to the 📦 on the map!", jobDone: "Delivered! +8 🪙 +30 XP", jobCancel: "STOP DELIVERY",
+    job: "📦 DELIVER", jobGo: "Take the parcel to the 📦 on the map!", jobDone: "Delivered! +8 🪙 +30 XP", jobCancel: "STOP DELIVERY", jobSlow: "Too fast, the parcel did not count", gone: "Someone else took it", offAct: "Server unreachable, try again",
     titles: ["Newcomer", "Hard Worker", "Model Neighbour", "Village Figure", "RT Official", "Hero of Citizenesia"],
     M: { makan: "Eat at the people's restaurant", item: "Pick up 3 things", drive: "Drive 300 m", work: "Work 2 times", deliv: "Deliver 2 parcels", talk: "Talk to Pak Presiden", gong: "Hit the gong", chat: "Send 1 chat", jajan: "Buy a snack at the warung", walk: "Walk 200 m" },
     driveHint: "Joystick up = gas, down = reverse, sideways = steer", bump: "Bonk! Crashed 😅",
@@ -73,8 +73,9 @@ export function createItems(scene, free, saved) {
   return {
     list, taken,
     near(x, z, r = 1.3) { let best = null, bd = r; for (const it of list) { if (!it.g.visible) continue; const d = Math.hypot(it.x - x, it.z - z); if (d < bd) { bd = d; best = it; } } return best; },
+    setTaken(id, at) { taken[id] = at; },
     take(it) { it.g.visible = false; if (it.id[0] === "d") { list.splice(list.indexOf(it), 1); it.g.parent?.remove(it.g); } else taken[it.id] = Date.now(); },
-    drop(k, x, z) { const it = { id: "d" + Date.now().toString(36), k, x, z, g: itemMesh(k) }; it.g.position.set(x, 0.45, z); scene.add(it.g); list.push(it); },
+    drop(k, x, z, id) { const it = { id: id || "d" + Date.now().toString(36), k, x, z, g: itemMesh(k) }; it.g.position.set(x, 0.45, z); scene.add(it.g); list.push(it); },
     update(t, y0 = 0) {
       const now = Date.now();
       for (const it of list) {
@@ -135,7 +136,7 @@ function textSprite(txt, bg = "#fffdf4", fg = "#3a2414") {
 }
 
 // ---------- online: everyone in the same village ----------
-export function createOnline(scene, { onCount, onLog, onBuilds }) {
+export function createOnline(scene, { onCount, onLog, onBuilds, onTaken }) {
   const others = new Map();
   let ws = null, me = null, up = false, tries = 0, sendT = 0, last = "";
   function connect() {
@@ -145,8 +146,9 @@ export function createOnline(scene, { onCount, onLog, onBuilds }) {
     ws.onerror = () => {};
     ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
-      if (m.t === "welcome") { me = m.id; onBuilds && onBuilds(m.builds || [], true); m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
+      if (m.t === "welcome") { me = m.id; onTaken && Object.entries(m.taken || {}).forEach(([id, at]) => onTaken(id, at)); onBuilds && onBuilds(m.builds || [], true); m.all.forEach((p) => upsert(p.id, p, true)); onCount(others.size + 1, true); }
       else if (m.t === "p") { const fresh = !others.has(m.id); upsert(m.id, m); if (fresh) { onLog(w9("joined", { n: m.n })); onCount(others.size + 1, true); } }
+      else if (m.t === "it") onTaken && onTaken(m.id, m.at);
       else if (m.t === "w") onBuilds && onBuilds([m], false);
       else if (m.t === "bye") { const o = others.get(m.id); if (o) { scene.remove(o.root); others.delete(m.id); onLog(w9("left", { n: o.s.n })); onCount(others.size + 1, true); } }
       else if (m.t === "c") { onLog(`${m.id === me ? "@" + "kamu" : others.get(m.id)?.s.n || "?"}: ${m.text}`, m.id === me); const o = others.get(m.id); if (o) bubble(o, m.text); }

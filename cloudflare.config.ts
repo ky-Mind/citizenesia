@@ -16,7 +16,8 @@ export default defineConfig({
       "Room": exports.durableObject({ storage: "sqlite" })
     },
     "env": {
-      "ROOM": bindings.durableObject({ worker: "citizenesia", exportName: "Room" })
+      "ROOM": bindings.durableObject({ worker: "citizenesia", exportName: "Room" }),
+      "ADMIN_KEY": bindings.secret()
     }
   }
 });

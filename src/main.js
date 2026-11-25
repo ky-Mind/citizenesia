@@ -17,12 +17,16 @@ const touch = matchMedia("(pointer: coarse)").matches;
 const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
 const quality = { low: touch, shadows: !touch };
 
-// admin (the presenter): opening the game at /kymind makes this device the admin's, and it stays admin from then on.
-// Everything runs on the player's own device, so admin powers change only that device's game.
-let isAdmin = false;
+// admin (the presenter): opening /kymind asks for the admin code once. The SERVER checks that code on every request, so the
+// /kymind link alone gives nothing; isAdmin turns on only after the server says the code is right.
+let isAdmin = false, adminKey = "";
 try {
-  if (/^\/kymind\/?$/i.test(location.pathname)) { localStorage.setItem("citizenesia.admin", "1"); history.replaceState(null, "", "/" + location.search); }
-  isAdmin = localStorage.getItem("citizenesia.admin") === "1";
+  localStorage.removeItem("citizenesia.admin");   // the old, unchecked flag
+  if (/^\/kymind\/?$/i.test(location.pathname)) {
+    history.replaceState(null, "", "/" + location.search);
+    const k = prompt("Kode admin CITIZENESIA:"); if (k) localStorage.setItem("citizenesia.adminKey", k.trim());
+  }
+  adminKey = localStorage.getItem("citizenesia.adminKey") || "";
 } catch {}
 
 // ---------- renderer ----------
@@ -63,6 +67,7 @@ try { const v1 = JSON.parse(localStorage.getItem("citizenesia.save.v1") || "null
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
 if (!/^[a-z0-9]{12,32}$/.test(S.key || "")) S.key = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
 S.xp = S.xp || 0; S.stats = { walk: 0, drive: 0, jobs: 0, deliv: 0, items: 0, mis: 0, ...(S.stats || {}) };
+S.free = false;   // the old "free mode" is gone: coins are decided by the server now
 let dirty = false, resetting = false, cloudDirty = true, cloudOK = false;
 const powers = () => isAdmin && S.adm.on;   // admin mode; "view as a player" turns it off
 const round = (v) => Math.round(v * 100) / 100;
@@ -84,16 +89,44 @@ function onBuilds(list, all) {
   homesO.load([...worldB.values()].flatMap((b) => b.homes));
 }
 // the cloud save: the same save, kept on the server under your code + secret key (so it survives a new phone)
+// talking to the server: the secret key travels in the request body (never in the address), the admin code in a header
+async function api(path, body, who = S) {
+  const r = await fetch("/api/" + path, { method: "POST", headers: { "content-type": "application/json", ...(adminKey ? { "x-cz-admin": adminKey } : {}) }, body: JSON.stringify({ code: who.code, key: who.key, ...body }) });
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
+  if (j.state && who === S) applyState(j.state);
+  return j;
+}
+let stateIn = false;
+function applyState(st) {
+  const lv0 = level();
+  Object.assign(S, { coins: st.coins, xp: st.xp, hired: st.hired, bag: st.bag, stats: { ...S.stats, ...st.stats }, mis: st.mis });
+  if (stateIn && level() > lv0) { stamp(`LV ${level()}`); SFX.born(); toast(w9("lvUp", { t: title() }), 3); }
+  stateIn = true; cloudOK = true;
+  if (!!st.admin !== isAdmin) { isAdmin = !!st.admin; refreshLevel(); }
+  hud(); dirty = true;
+}
+// one game action, checked by the server: work, buy, take, use, drop, deliver, events, distance
+async function act(a, args = {}) {
+  try {
+    const j = await api("act", { act: a, ...args });
+    if (j.done) { SFX.yes(); setTimeout(() => toast(w9("misDone"), 2.6), 900); }
+    return j;
+  } catch { toast(w9("offAct"), 2); return { ok: false, msg: "offline" }; }
+}
 async function cloudSave(beacon) {
   if (!S.created) return; cloudDirty = false;
   const body = JSON.stringify({ code: S.code, key: S.key, data: S });
   if (beacon && navigator.sendBeacon) { navigator.sendBeacon("/api/save", new Blob([body], { type: "application/json" })); return; }
-  try { const r = await fetch("/api/save", { method: "POST", body, headers: { "content-type": "application/json" } }); cloudOK = r.ok; if (!r.ok) cloudDirty = true; } catch { cloudDirty = true; cloudOK = false; }
+  try {
+    const j = await api("save", { data: S });
+    if (j.refused) { builder.load(j.blocks); homes.load(j.homes); toast(t9n("broke")); }
+  } catch { cloudDirty = true; cloudOK = false; }
 }
 async function cloudLoad(code, key, force) {
   try {
-    const r = await fetch(`/api/save?code=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}`); if (!r.ok) return false;
-    const j = await r.json(); cloudOK = true; if (!j.data) return !force;
+    const j = await api("load", {}, { code, key }); cloudOK = true;
+    if (!force && code === S.code) applyState(j.state);
+    if (!j.data) return !force;
     if (force || (j.updated > (S.t || 0) + 5000 && !sessionStorage.getItem("cz.pulled"))) {
       resetting = true; try { sessionStorage.setItem("cz.pulled", "1"); localStorage.setItem(KEY, JSON.stringify({ ...j.data, code, key, t: j.updated })); } catch {}
       location.reload();
@@ -362,15 +395,15 @@ const overPlayer = () => tmp.copy(player).add(new THREE.Vector3(0, 1.6, 0));
 // ---------- everything you can use ----------
 let seated = null, napT = -1, workT = -1, sayI = 0;
 function work() {
-  if (!S.hired) { toast(t9n("reject"), 2.2); SFX.no(); setTimeout(() => { toast(t9n("hired")); SFX.yes(); S.hired = true; dirty = true; hud(); }, 2300); return; }
+  if (!S.hired) { toast(t9n("reject"), 2.2); SFX.no(); act("work").then((j) => j.ok && setTimeout(() => { toast(t9n("hired")); SFX.yes(); }, 2300)); return; }
   if (workT < 0) { workT = 0; $("prog").style.display = "block"; $("progT").textContent = t9n("working"); }
 }
-const pay = (n, msg) => { const fr = S.free || powers(); if (!fr && S.coins < n) { toast(t9n("broke")); return; } if (!fr) S.coins -= n; dirty = true; SFX.coin(); toast(msg, 2.8); hud(); };
+const pay = (what, msg) => act("buy", { what }).then((j) => { if (j.ok) { SFX.coin(); toast(msg, 2.8); } else if (j.msg === "broke") toast(t9n("broke")); });
 const presLine = () => t9n("presSays")[sayI++ % t9n("presSays").length].replace("{pop}", fmt(DATA.population));
 const SPOTS = negara.spots, ACTS = {
   president: () => [["aTalk", () => (mission("talk"), say(() => tmp.copy(negara.president.g.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 1.5, 0)), presLine(), 3.6))]],
   chair: () => [["aSit", () => { seated = SPOTS.chair.seat; toast(t9n("kursiMsg"), 2.6); }]],
-  makan: () => [["aMakan", () => pay(2, (mission("makan"),  t9n("makanMsg")[Math.floor(Math.random() * t9n("makanMsg").length)]))]],
+  makan: () => [["aMakan", () => pay("makan", ( t9n("makanMsg")[Math.floor(Math.random() * t9n("makanMsg").length)]))]],
   gong: () => [["aGong", () => { mission("gong"); SFX.gavel(); stamp("GONG!"); }]],
   wapres: () => [["aWapres", () => toast(t9n("wapresMsg"), 3.4)]],
   vote: () => [["aVote", openGrow]],
@@ -379,8 +412,8 @@ const SPOTS = negara.spots, ACTS = {
   sekolah: () => [["aSekolah", () => { SFX.yes(); toast(t9n("sekolahMsg"), 3.4); }]],
   panggung: () => [["aWork", work], ["aPidato", () => { say(overPlayer, t9n("pidato"), 3); SFX.mic(); }]],
   rakyat: () => [["aRead", () => toast(`👥 ${t9n("rakyatHud")}: ${fmt(DATA.population)} · ${t9n("followRule")}`, 3.4)]],
-  warung: () => [["aJajan", () => { mission("jajan"); pay(1, t9n("jajanMsg")); }]],
-  bakso: () => [["aBakso", () => pay(3, t9n("baksoMsg"))]],
+  warung: () => [["aJajan", () => pay("jajan", t9n("jajanMsg"))]],
+  bakso: () => [["aBakso", () => pay("bakso", t9n("baksoMsg"))]],
 };
 const SEATED_ACTS = () => [...(seated.eat ? [["hEat", () => { SFX.eat(); toast(t9n("eatMsg")); }]] : []), ...(seated.tv ? HOUSE_ACTS.tv() : []), ["aStand", () => (seated = null)]];
 let curActs = [], actsSig = "";
@@ -521,7 +554,13 @@ function poseCars(dt) {
 // ---------- the bag: what you picked up ----------
 function takeItem(it) {
   if (S.bag.length >= 12) { toast(w9("full")); SFX.no(); return; }
-  items.take(it); S.bag.push(it.k); S.stats.items++; gainXP(2); mission("item"); dirty = true; SFX.pop(); toast(w9("taken", { i: itemName(it.k) }), 1.8); actsSig = null; hud();
+  if (it.busy) return; it.busy = true;
+  act("take", { id: it.id, k: it.k }).then((j) => {
+    it.busy = false;
+    if (j.ok || j.msg === "gone") items.take(it);
+    if (j.ok) { SFX.pop(); toast(w9("taken", { i: itemName(it.k) }), 1.8); } else if (j.msg === "full") toast(w9("full")); else if (j.msg === "gone") toast(w9("gone"), 1.4);
+    actsSig = null;
+  });
 }
 function openBag() {
   const P = $("bagList"); P.innerHTML = "";
@@ -532,9 +571,12 @@ function openBag() {
     const r = document.createElement("div"); r.className = "it";
     r.innerHTML = `<span>${itemName(k)}${n > 1 ? ` ×${n}` : ""}</span>`;
     const use = document.createElement("button"); use.className = "btn green"; use.textContent = w9("use");
-    use.onclick = () => { S.bag.splice(S.bag.indexOf(k), 1); const I = ITEMS[k]; if (I.coins) S.coins += I.coins; SFX[I.coins ? "coin" : "eat"](); toast(I.use[getLang()] || I.use.id, 2.6); dirty = true; hud(); openBag(); };
+    use.onclick = () => act("use", { k }).then((j) => { if (!j.ok) return; const I = ITEMS[k]; SFX[I.coins ? "coin" : "eat"](); toast(I.use[getLang()] || I.use.id, 2.6); openBag(); });
     const drop = document.createElement("button"); drop.className = "btn dark"; drop.textContent = w9("drop");
-    drop.onclick = () => { if (where !== "out" || drive) return; S.bag.splice(S.bag.indexOf(k), 1); items.drop(k, player.x + Math.sin(facing) * 0.9, player.z + Math.cos(facing) * 0.9); toast(w9("dropped", { i: itemName(k) }), 1.6); dirty = true; hud(); openBag(); };
+    drop.onclick = () => {
+      if (where !== "out" || drive) return; const x = player.x + Math.sin(facing) * 0.9, z = player.z + Math.cos(facing) * 0.9;
+      act("drop", { k, x, z }).then((j) => { if (!j.ok) return; items.drop(k, x, z, j.id); toast(w9("dropped", { i: itemName(k) }), 1.6); openBag(); });
+    };
     r.append(use, drop); P.appendChild(r);
   });
   $("bagClose").textContent = w9("close");
@@ -554,7 +596,7 @@ function log(line, mine) {
 let logT = 0;
 const online = createOnline(out, {
   onCount: (n, up) => { $("net").textContent = up ? `🟢 ${n} ${w9("online")}` : `⚪ ${w9("offline")}`; },
-  onLog: log, onBuilds,
+  onLog: log, onBuilds, onTaken: (id, at) => items.setTaken(id, at),
 });
 function openChat() {
   $("chatTitle").textContent = `💬 ${w9("chat")}`;
@@ -586,14 +628,16 @@ if (touch) addEventListener("pointerdown", function fs() {
 // ---------- level, XP, title, stats ----------
 const level = (xp = S.xp) => Math.floor(Math.sqrt(xp / 40)) + 1;
 const title = (lv = level()) => w9("titles")[lv >= 16 ? 5 : lv >= 12 ? 4 : lv >= 8 ? 3 : lv >= 5 ? 2 : lv >= 3 ? 1 : 0];
-function gainXP(n) {
-  const a = level(); S.xp += n; dirty = true;
-  if (level() > a) { stamp(`LV ${level()}`); SFX.born(); toast(w9("lvUp", { t: title() }), 3); }
-  hud();
+function gainXP() {}   // XP is given by the server now
+// distance walked and driven is reported every 10 s; the server caps it by how fast anyone can go
+let walkAcc = 0, driveAcc = 0, moveT = 0;
+function walked(m) { walkAcc += m; }
+function driven(m) { driveAcc += m; }
+function reportMove(dt) {
+  moveT += dt; if (moveT < 10 || !S.created) return; moveT = 0;
+  if (walkAcc + driveAcc < 1) return;
+  const w = walkAcc, d = driveAcc; walkAcc = driveAcc = 0; act("move", { walk: w, drive: d });
 }
-let walkAcc = 0, driveAcc = 0;
-function walked(m) { S.stats.walk += m; walkAcc += m; mission("walk", m); if (walkAcc > 100) { walkAcc = 0; gainXP(1); } }
-function driven(m) { S.stats.drive += m; driveAcc += m; mission("drive", m); if (driveAcc > 100) { driveAcc = 0; gainXP(2); } }
 
 // ---------- daily missions: three a day, the same three for everyone (picked from the date) ----------
 const MIS = { makan: 1, item: 3, drive: 300, work: 2, deliv: 2, talk: 1, gong: 1, chat: 1, jajan: 1, walk: 200 };
@@ -604,12 +648,8 @@ function todays() {
   if (!S.mis || S.mis.day !== d) S.mis = { day: d, p: {}, d: {} };
   return out;
 }
-function mission(k, n = 1) {
-  if (!S.created || !todays().includes(k) || S.mis.d[k]) return;
-  S.mis.p[k] = (S.mis.p[k] || 0) + n; dirty = true;
-  if (S.mis.p[k] >= MIS[k]) { S.mis.d[k] = 1; S.coins += 15; S.stats.mis++; SFX.yes(); toast(w9("misDone"), 2.6); gainXP(50); }
-  misBox();
-}
+// the server counts missions; the game only reports the moments it cannot see (talking, the gong, a chat line)
+function mission(k) { if (S.created && ["talk", "gong", "chat"].includes(k) && todays().includes(k) && !S.mis.d[k]) act("ev", { k }); }
 const clockTxt = () => { const f = (Date.now() / 1000 % DAY) / DAY, m = Math.floor(f * 1440); return `${f > 0.25 && f < 0.75 ? "☀️" : "🌙"} ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
 function misBox() {
   if (!S.created) { $("mis").style.display = "none"; return; }
@@ -629,9 +669,9 @@ beacon.visible = false; out.add(beacon);
 function startJob() {
   const doors = [...negara.doors, ...homes.doors(), ...homesO.doors()].filter((d) => Math.hypot(d.x - player.x, d.z - player.z) > 15);
   const d = doors[Math.floor(Math.random() * doors.length)]; if (!d) return;
-  job = { x: d.x + Math.sin(d.ry) * 1.6, z: d.z + Math.cos(d.ry) * 1.6 }; beacon.visible = true; SFX.beep(); toast(w9("jobGo"), 2.6); actsSig = null;
+  job = { x: d.x + Math.sin(d.ry) * 1.6, z: d.z + Math.cos(d.ry) * 1.6 }; beacon.visible = true; act("jobStart"); SFX.beep(); toast(w9("jobGo"), 2.6); actsSig = null;
 }
-function finishJob() { job = null; beacon.visible = false; S.coins += 8; S.stats.deliv++; SFX.coin(); toast(w9("jobDone"), 2.4); gainXP(30); mission("deliv"); actsSig = null; hud(); }
+function finishJob() { job = null; beacon.visible = false; actsSig = null; act("deliver").then((j) => { if (j.ok) { SFX.coin(); toast(w9("jobDone"), 2.4); } else toast(w9("jobSlow"), 2); }); }
 
 // ---------- the profile: who you are, your level, your stats, your code for moving to another phone ----------
 function openProfile() {
@@ -702,7 +742,7 @@ function openAdmin() {
     P.appendChild(sw);
     P.appendChild(row(btn(t9n("aLook"), "", () => { $("admin").style.display = "none"; openCreator(); })));
   } else {
-    P.appendChild(row(btn(t9n("aFresh"), "red", () => { S.hired = false; S.coins = 0; changed(t9n("aFreshDone")); PLACES.alun(); $("admin").style.display = "none"; })));
+    P.appendChild(row(btn(t9n("aFresh"), "red", () => { act("fresh"); changed(t9n("aFreshDone")); PLACES.alun(); $("admin").style.display = "none"; })));
   }
   P.appendChild(lab(t9n("aGo")));
   P.appendChild(row(...Object.entries(t9n("aPlaces")).map(([k, v]) => btn(v, "dark", () => { flash("#fff", PLACES[k]); $("admin").style.display = "none"; }))));
@@ -791,7 +831,7 @@ function frame() {
   // working
   if (workT >= 0) {
     workT += dt; $("progI").style.width = `${Math.min(100, workT / 4 * 100)}%`;
-    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; S.coins += 10; dirty = true; SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); S.stats.jobs++; gainXP(20); mission("work"); hud(); }
+    if (workT >= 4) { workT = -1; $("prog").style.display = "none"; act("work").then((j) => { if (j.ok) { SFX.coin(); toast(t9n("paid", { n: 10 }), 1.8); } }); }
   }
   // what can you use here?
   renderActs(creating || panel || building ? [] : findActs());
@@ -831,6 +871,7 @@ function frame() {
   if (stampT > 0) { stampT -= dt; if (stampT <= 0) $("stamp").classList.remove("on"); }
   saveT += dt; if (saveT > 3 && S.created) { saveT = 0; if (dirty || moving) save(); }
   cloudT += dt; if (cloudT > 12) { cloudT = 0; if (cloudDirty) cloudSave(); }
+  reportMove(dt);
   clockT -= dt; if (clockT <= 0) { clockT = 1; misBox(); }
   renderer.render(scene(), camera);
   requestAnimationFrame(frame);
