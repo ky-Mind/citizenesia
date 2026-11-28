@@ -4,7 +4,7 @@ A small country whose people are its followers: the playable world of the CITIZE
 
 ## Play
 
-Online: https://citizenesia.hilmykia.workers.dev (admin: https://citizenesia.hilmykia.workers.dev/kymind)
+Online: https://citizenesia.com (admin: https://citizenesia.com/kymind)
 
 On your computer:
 

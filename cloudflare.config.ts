@@ -5,6 +5,8 @@ export default defineConfig({
     "name": "citizenesia",
     "entrypoint": "./worker/index.js",
     "compatibilityDate": "2026-10-23",
+    "domains": ["citizenesia.com", "www.citizenesia.com"],
+    "workersDev": false,
     "observability": {
       "enabled": true
     },
