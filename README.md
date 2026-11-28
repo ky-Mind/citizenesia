@@ -1,86 +1,111 @@
-# CITIZENESIA
+<p align="center">
+  <img src="docs/img/banner.jpg" alt="CITIZENESIA — negara kecil yang rakyatnya = follower" width="100%">
+</p>
 
-A small country whose people are its followers: the playable world of the CITIZENESIA reels on Instagram ([@citizenesia.official](https://www.instagram.com/citizenesia.official/)). Two rules, the same as in the videos: **follow = you are one of the people**, and **the most-liked comment = what happens in the next episode**. The village in the game is the village of the latest episode, built from the same 3D source, so it looks exactly like the reels.
+<p align="center">
+  <a href="https://citizenesia.com"><img src="https://img.shields.io/badge/Main%20sekarang-citizenesia.com-c4162a?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Main sekarang"></a>
+  <a href="https://www.instagram.com/citizenesia.official/"><img src="https://img.shields.io/badge/Instagram-@citizenesia.official-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram"></a>
+</p>
 
-## Play
+<p align="center">
+  <img src="https://img.shields.io/badge/three.js-000000?logo=threedotjs&logoColor=white" alt="three.js">
+  <img src="https://img.shields.io/badge/WebGL-990000?logo=webgl&logoColor=white" alt="WebGL">
+  <img src="https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/Cloudflare%20Workers-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
+  <img src="https://img.shields.io/badge/Durable%20Objects-F38020?logo=cloudflare&logoColor=white" alt="Durable Objects">
+  <img src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white" alt="SQLite">
+</p>
 
-Online: https://citizenesia.com (admin: https://citizenesia.com/kymind)
+**CITIZENESIA** adalah negara kecil fiksi yang rakyatnya adalah penontonnya sendiri — dunia bermain dari reels [@citizenesia.official](https://www.instagram.com/citizenesia.official/). Dua aturan, sama persis seperti di videonya: **follow = kamu jadi salah satu rakyat**, dan **komentar dengan like terbanyak = yang terjadi di episode berikutnya**. Kampung di game ini adalah kampung episode terbaru, dibangun dari sumber 3D yang sama, jadi bentuknya persis seperti di reels.
 
-On your computer:
+## Sekilas
+
+<p align="center">
+  <img src="docs/img/demo.gif" width="100%" alt="Menjelajahi dunia 3D CITIZENESIA">
+</p>
+
+<p align="center">
+  <img src="docs/img/kas.jpg" width="100%" alt="Alun-alun: Pak Presiden di podium, papan RAKYAT, dan Rumah Makan Rakyat">
+</p>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/img/sekolah.jpg" width="100%" alt="Sekolah Citizenesia dengan guru dari komentar"><br><sub>Sekolah & kantin — guru dan kepsek dari komentar</sub></td>
+    <td align="center"><img src="docs/img/makan.jpg" width="100%" alt="Rumah Makan Rakyat"><br><sub>Rumah Makan Rakyat, menu & dapur terbuka</sub></td>
+    <td align="center"><img src="docs/img/creator.jpg" width="100%" alt="Membuat karakter rakyat"><br><sub>Desain rakyatmu sebelum masuk</sub></td>
+  </tr>
+</table>
+
+## Fitur utama
+
+- **Jadi salah satu rakyat.** Pilih nama akunmu dan desain LOOK (topi, ikat kepala, kacamata, kumis, helm astronot). Mulai dari gapura "SELAMAT DATANG DI CITIZENESIA".
+- **Kampung dari reels, hidup.** Pak Presiden di podium dan KURSI RAKYAT 001, Rumah Makan Rakyat, kursi Wapres, panggung debat & kotak suara, Kas Negara, rumah sakit 5 lantai dengan dokter dari komentar, sekolah, warung 24 jam, dan gerobak bakso — semua yang dibangun komentar ada di sana.
+- **Semua bisa dipakai.** Ngobrol dengan Pak Presiden, duduk di kursi rakyat, pesan makan, pukul gong, cek kas negara, periksa di RS, masuk sekolah, pidato, dan cari kerja (10 koin per shift). Uangnya KOIN CITIZENESIA — uang mainan, tanpa rupiah.
+- **Dunia tak berujung.** Darat dan laut dibangun per-chunk di sekitarmu dengan desa-desa di tanah tetangga; laut dalam menenggelamkanmu dan kamu bangun lagi di gapura.
+- **Masuk rumah mana saja & membangun.** Tiap rumah punya pintu; di dalamnya kasur, kulkas, kompor, TV, saklar, komputer, rak buku semuanya bisa dipakai. Beli rumah jadi (kecil/sedang/besar) lalu pasang blok (1 koin per blok).
+- **Dua bahasa.** Mengikuti bahasa perangkat (Indonesia/Inggris), bisa ganti lewat tombol EN/ID.
+
+## Cara pakai
+
+**Langsung main:** buka <https://citizenesia.com>. Butuh WebGL. Di HP, mainkan dalam posisi landscape.
+
+| | Laptop | HP |
+| --- | --- | --- |
+| Gerak | WASD / panah (Shift lari) | joystick |
+| Lihat sekeliling 360° | drag | drag |
+| Zoom | scroll | pinch |
+| Lompat / naik di air | Space | LOMPAT / NAIK |
+| Pakai sesuatu | E, R, F, G | tombol kuning |
+| Mode bangun | B | BANGUN |
+| Pasang / hapus blok | klik / klik kanan, X ganti alat | PASANG / HAPUS |
+
+Progres disimpan di browser (localStorage). Tambahkan `?debug` ke alamat untuk mendapat `window.__cz` saat pengujian.
+
+**Menjalankan sendiri:**
 
 ```bash
 npm install
-npm run dev
+npm run dev          # buka alamat yang dicetak Vite (juga menyimak di jaringan untuk HP se-Wi-Fi)
+npm run deploy       # publikasi ke Cloudflare dengan CLI `cf` (cloudflare.config.ts)
 ```
 
-Open the address Vite prints. `npm run deploy` publishes the game to Cloudflare with the `cf` CLI (`cloudflare.config.ts`) (it also listens on your network, so a phone on the same Wi-Fi can join). The game needs WebGL.
+## Cara kerjanya
 
-## How it works (v0.3)
+Kampung diambil dari world source episode terbaru (`src/kampung.js`, dari `ep009sekolah-id` di folder seri), disalin dengan tiga perubahan: tanpa renderer sendiri, tanpa ground disc (tanah tak berujung jadi lantainya), dan koin mainan sebagai ganti rupiah. `src/kampung-data.js` menyimpan timing kata episode itu agar skrip tahu apa yang sudah berdiri di akhir episode. Untuk membawa episode baru, salin world source-nya dengan cara yang sama.
 
-1. **Become one of the people.** Pick your account name and a LOOK (drag to turn around your character and walk while you edit). You start at the gapura, "SELAMAT DATANG DI CITIZENESIA", looking into the village.
-2. **Walk the village from the reels.** Everything the comments built is there: Pak Presiden at his podium and KURSI RAKYAT 001 (EP 001), the Rumah Makan Rakyat with its open kitchen and menu (EP 002–003), the Wapres chair of @abdulm4jid_ (EP 004–006), the debate stage and the ballot box (EP 005), the Kas Negara hen (EP 007–008), the 5-storey hospital with its doctors from the comments (EP 007–008), the school (EP 009), the RAKYAT board, the warung 24 jam and the bakso cart.
-3. **Use what you find.** Talk to Pak Presiden, sit on KURSI RAKYAT 001, order food, hit the gong, check the treasury, get a check-up, visit the school, give a speech, and find work on the jobs stage (10 coins a shift). The ballot box explains how the country works and opens the Instagram account.
-4. **Money is KOIN CITIZENESIA**, toy coins. There is no rupiah anywhere in the game.
-5. **The world around never ends.** Land and sea are built in chunks around you and dropped behind you, with villages on the neighbouring land. Deep water drowns you and you wake up at the gapura.
-6. **Walk into any house.** Every house has a door: the kampung houses, the village houses on the neighbouring land and the houses players buy. Inside, everything can be used: bed, fridge, stove, table, sofa and TV, light switch, and in bigger houses a computer and a bookshelf. The roof is open to the camera and the wall facing it hides, like a doll's house.
-7. **Buy a ready-made house and build.** In build mode pick a small (50), medium (120) or big (250) house and tap the ground; blocks cost a coin each. The village itself stays as in the reels: nothing can be built on it.
+`public/data/world.json` menyimpan angka dari akun: `population` (jumlah follower, dipakai counter & papan RAKYAT), `day` (episode terbaru), `links.instagram` (akun yang dibuka kotak suara).
 
-| | Laptop | Phone |
-| --- | --- | --- |
-| Move | WASD / arrows (Shift runs) | joystick |
-| Look around 360° | drag | drag |
-| Zoom | mouse wheel | pinch |
-| Jump / swim up | Space | JUMP / UP |
-| Use things | E, R, F, G (shown on the buttons) | the yellow buttons |
-| Build mode (outside) | B | BUILD |
-| Place / remove | click / right-click, X switches tool | tap, PLACE / REMOVE |
-| Pick a block | 1–0 | tap a colour |
+### Struktur kode
 
-Progress is saved in the browser (localStorage). The language follows the device (Indonesian or English); the EN/ID button switches it. Phones get no shadows and a shorter view distance, and on phones the village stands still and is merged into a few hundred meshes (from about 3,000) so it stays smooth; computers keep its idle life (flags, steam, the cheering crowd).
-
-## Admin (the presenter)
-
-One device can be the admin's: you play as Pak Presiden from the reels (or as one of the people, any age from 0 to 80), with endless coins and blocks, any size and body colour, walking on the sea, and teleports to the square, the restaurant, the hospital, the school, the treasury and the neighbouring land. "View as a player" switches the powers off.
-
-Open the game once at `/kymind` (for example `http://localhost:5173/kymind`, or the same path on the online address) on any device you want to be the admin's. The ADMIN button then shows at the top, and the address switches back to the main page. Since the game runs on each player's own device, admin powers change only that device's game; shared data (chat, multiplayer) will need a real login on a server.
-
-## World data
-
-`public/data/world.json` holds the numbers from the account: `population` is the follower count (the RAKYAT counter and board), `day` the latest episode, `links.instagram` the account the ballot box opens.
-
-```json
-{ "day": 9, "population": 1799, "decree": { "text": "Sekolah dibuka", "author": "rakyat", "likes": 61 }, "links": { "instagram": "https://www.instagram.com/citizenesia.official/" } }
+```
+src/kit.js               material & papan nama bersama (sama seperti dunia video)
+src/actors.js            para rakyat (figur yang sama dengan reels) + opsi LOOK
+src/kampung.js           kampung episode terbaru
+src/kampung-data.js      timing kata episode untuk tahu apa yang sudah terbangun
+src/negara.js            lapisan game di atas kampung: tabrakan, pintu, tempat yang bisa dipakai
+src/homes.js             rumah yang dibeli, pintu, dan isi rumah
+src/terrain.js           darat & laut tak berujung, dibangun per-chunk
+src/npc.js               warga NPC dengan jadwal harian
+src/play.js              lapisan online (WebSocket, pemain lain, chat)
+src/build.js             blok, bidikan, dan penyimpanan
+src/sfx.js, src/i18n.js  efek suara di browser & semua teks dua bahasa
+src/main.js              pemain, kamera, input, HUD, dan aturan game
+worker/index.js          Cloudflare Worker + Durable Object `Room` (SQLite)
 ```
 
-## The village
+## v0.5 — kampung online
 
-`src/kampung.js` is the world script of the latest episode (`ep009sekolah-id/work/world-src.js` in the series folder), copied with three changes: no renderer of its own, no ground disc (the endless land is the ground), and toy coins instead of rupiah. `src/kampung-data.js` holds that episode's word timings, which the script uses to know what stands built by the end of the episode. To bring in a newer episode, copy its world source the same way.
+- **Server yang menentukan ekonomi** (`worker/index.js`, Durable Object `Room` dengan SQLite): koin, XP, energi ⚡, tas, statistik, misi harian, dan biaya bangun hanya berubah lewat aksi yang diperiksa server (`POST /api/act`). Simpanan HP (`/api/save`) menjaga look, posisi, dan bangunan.
+- **Main bareng** (WebSocket `/api/room`): pemain lain, chat (dengan filter kata), emote, pesan pribadi, hadiah, satu sopir per mobil, item yang diambil bersama, serta rumah dan blok semua orang.
+- **Kehidupan**: energi (makan untuk mengisi; toko buka 06:00–22:00 pada hari 24-menit bersama), menjual barang di warung, pekerjaan kurir Sopir Antar, level & gelar, papan peringkat, dan NPC warga dengan jadwal harian.
+- **Admin**: `/kymind` meminta kode admin sekali; server yang memeriksanya (secret `ADMIN_KEY`). Salinan lokal di `.admin-secrets.json` / `.dev.vars` (keduanya diabaikan git). Deploy: `npm run deploy -- --secrets-file .admin-secrets.json`.
 
-## Code
+## Rencana berikutnya
 
-- `src/kit.js`: shared materials and sign painting, the same as the video world.
-- `src/actors.js`: the people (the same figures as in the reels, grown to any age) with LOOK options.
-- `src/kampung.js`, `src/kampung-data.js`: the village of the latest episode.
-- `src/negara.js`: the game layer over the village: what you bump into, house doors, the places you can use, Pak Presiden.
-- `src/homes.js`: bought houses, every house door, and the inside of a house.
-- `src/terrain.js`: the endless land and sea, built in chunks around the player.
-- `src/sfx.js`: small sound effects made in the browser.
-- `src/build.js`: blocks, aiming and saving.
-- `src/i18n.js`: every visible word in Indonesian and English.
-- `src/main.js`: player, camera, input, HUD and the game rules.
+- Bendera & ikon app yang dirancang penonton lewat komentar, dipilih lewat voting, dengan kredit perancangnya.
+- Gedung yang terbuka di milestone follower (Kantor Sensus, Stadion Rakyat, Bandara + perjalanan ke tanah tetangga).
+- Kotak komentar in-app yang online, agar sensus menghitung langsung dari app.
 
-Add `?debug` to the address to get `window.__cz` for tests.
+---
 
-## Next
-
-- A national flag and app icon designed by viewers in the comments, chosen by vote, with the designer credited.
-- Buildings that unlock at follower milestones (Census Office, People's Stadium, Airport, which also opens travel to the neighbouring land).
-- The in-app comment box online (a small server that stores comments for the census).
-- Players chatting with each other (needs the same server), with admin checks done on the server.
-- Ready-made buildings to buy, jobs beyond the eternal internship, and a shared world for several players.
-
-## v0.5 — an online village (Nov 2026)
-- **Server decides the economy** (`worker/index.js`, Durable Object `Room`, SQLite): coins, XP, energy ⚡, the bag, stats, daily missions and build costs change only through checked actions (`POST /api/act`). The phone's save (`/api/save`) keeps the look, position and builds. The account key travels in the request body.
-- **Live together** (WebSocket `/api/room`): players, chat (with a word filter), emotes, private messages, gifts, one driver per car, shared item pickups, everyone's houses and blocks.
-- **Life**: energy (eat to refill; shops open 06:00–22:00 on the shared 24-minute day), selling things at the warung, the Sopir Antar parcel job, levels and titles, a ranking, villagers (NPCs) on a daily schedule (`src/npc.js`).
-- **Admin**: `/kymind` asks for the admin code once; the server checks it (secret `ADMIN_KEY`). Local copy: `.admin-secrets.json` / `.dev.vars` (both ignored by git). Deploy: `npm run deploy -- --secrets-file .admin-secrets.json`.
+<p align="center"><sub>Dibuat oleh <a href="https://github.com/ky-Mind">ky-Mind</a> · <a href="https://kymind.web.id">kymind.web.id</a></sub></p>
